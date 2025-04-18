@@ -1,0 +1,226 @@
+# Master configuration file for regional flexibility optimization
+# Comprehensive parameter set for the French regional energy model
+
+# ========================================
+# General Configuration
+# ========================================
+
+# List of regions to analyze
+regions:
+  - "Auvergne_Rhone_Alpes"
+  - "Nouvelle_Aquitaine" 
+  - "Occitanie"
+  - "Provence_Alpes_Cote_d'Azur"
+
+# Region name mapping (standardized names to match data sources)
+region_name_map:
+  "Auvergne-Rhone-Alpes": "Auvergne Rhone Alpes"
+  "Nouvelle-Aquitaine": "Nouvelle Aquitaine"
+  "Occitanie": "Occitanie"
+  "Provence-Alpes-Cote-dAzur": "Provence Alpes Cote d'Azur"
+
+# Time settings for optimization
+time_settings:
+  resolution: "30min"  # Half-hourly resolution
+  start_date: "2022-01-01 00:00:00"
+  end_date: "2022-12-31 23:30:00"
+
+# Technology name mapping to align with optimizer's expected names
+tech_name_map:
+  hydraulique: "hydro"
+  nucleaire: "nuclear"
+  thermique_gaz: "thermal_gas" 
+  thermique_charbon: "thermal_coal"
+  bioenergie: "biofuel"
+
+# ========================================
+# Cost Parameters
+# ========================================
+
+# Cost parameters: optimized for balanced flexibility utilization
+costs:
+  # System costs - more balanced to encourage diverse flexibility solutions
+  demand_response: 60.0  # EUR/MWh - Reduced to encourage more use of demand response
+  exchange: 35.0   # EUR/MWh - Regional exchange cost (increased to balance with other options)
+
+  # Storage technology-specific costs (more balanced)
+  storage_STEP_charge: 35.0    # EUR/MWh - More balanced cost for charging pumped hydro storage
+  storage_STEP_discharge: 60.0 # EUR/MWh - More balanced cost for discharging pumped hydro storage
+  storage_batteries_charge: 40.0    # EUR/MWh - More balanced cost for charging batteries
+  storage_batteries_discharge: 70.0  # EUR/MWh - More balanced cost for discharging batteries
+  
+  # Updated general costs
+  transport_exchange: 40.0  # EUR/MWh - More balanced cost for transportation grid exchanges
+  slack_penalty: 50000.0  # EUR/MWh - High penalty to discourage slack variables
+  curtailment_penalty: 10000.0  # EUR/MWh - Penalty for curtailment
+
+# ========================================
+# Global Constraints
+# ========================================
+
+# Global constraints applied to all regions unless overridden
+constraints:
+  # Maximum capacity constraints
+  max_demand_response: 5000.0  # MW - Maximum demand response capacity
+  max_daily_demand_response: 10000.0 # MWh/day - Maximum daily energy shifted via DR
+  max_exchange: 2000.0  # MW - Maximum exchange capacity between regions (increased from 2000.0)
+  max_storage: 5000.0  # MW - Maximum storage power capacity
+  transport_capacity: 5000.0  # MW - Maximum transport network exchange capacity (increased from 3000.0)
+  exchange_capacity: 2000.0  # MW - Maximum exchange capacity (direct connections) (increased from 2000.0)
+  max_slack: 10000.0  # MW - Maximum slack variable value for grid constraints
+  
+  # Flexibility diversity constraints - Minimum utilization thresholds
+  min_storage_utilization: 0.0  # At least 15% of demand should be met by storage activity
+  min_dr_utilization: 0.0      # At least 10% of demand should use demand response
+  min_exchange_utilization: 0.0 # At least 15% of demand should involve regional exchanges
+  
+  # Storage-related constraints
+  storage_efficiency: 0.95  # Self-discharge efficiency (per half-hour)
+  charge_efficiency: 0.95   # Efficiency when charging storage
+  discharge_efficiency: 0.95 # Efficiency when discharging storage
+  initial_storage_level: 0.5  # Initial storage level as fraction of capacity
+  
+  # Minimum dispatch levels (as percentage of installed capacity)
+  min_dispatch_nuclear: 0.20  # Nuclear plants minimum dispatch level
+  min_dispatch_hydro: 0.05    # Hydro minimum dispatch level
+  min_dispatch_thermal: 0.05  # Thermal plants minimum dispatch level 
+  min_dispatch_thermal_gas: 0.05  # Gas plants minimum dispatch level
+  min_dispatch_thermal_coal: 0.05  # Coal plants minimum dispatch level
+  min_dispatch_biofuel: 0.05  # Biofuel plants minimum dispatch level
+  
+  # Ramping constraints (maximum change in MW per time period)
+  max_ramp_rate_hydro: 0.30   # Hydro can ramp by 30% of capacity per period
+  max_ramp_rate_nuclear: 0.05 # Nuclear can ramp by 5% per period
+  max_ramp_rate_thermal: 0.50 # Thermal can ramp by 50% per period
+  max_ramp_rate_thermal_gas: 0.50 # Gas can ramp by 50% per period
+  max_ramp_rate_thermal_coal: 0.30 # Coal can ramp by 30% per period 
+  max_ramp_rate_biofuel: 0.15 # Biofuel can ramp by 15% per period
+
+  allow_curtailment: true
+
+# ========================================
+# Regional Capacities from config_reg.yaml
+# ========================================
+
+# Installed generation capacities by region and technology
+regional_capacities:
+  "Auvergne Rhone Alpes":
+    hydro: 11403    # MW
+    nuclear: 13630  # MW
+    thermal_gas: 700   # MW (centrales gaz)
+    thermal_coal: 300   # MW (centrales charbon fioul)
+    biofuel: 190    # MW (biomasse, biogaz, déchets)
+  "Nouvelle Aquitaine":
+    hydro: 2300     # MW
+    nuclear: 6500   # MW
+    thermal_gas: 100    # MW
+    thermal_coal: 0   # MW
+    biofuel: 250    # MW
+  "Occitanie":
+    hydro: 5296     # MW
+    nuclear: 2734   # MW
+    thermal_gas: 500    # MW
+    thermal_coal: 100   # MW
+    biofuel: 171    # MW
+  "Provence Alpes Cote d'Azur":
+    hydro: 3348     # MW
+    nuclear: 0      # MW
+    thermal_gas: 2000   # MW (cycles combinés gaz)
+    thermal_coal: 760   # MW (centrales charbon fioul)
+    biofuel: 210    # MW
+
+# ========================================
+# Regional Storage Capacities
+# ========================================
+
+# Region-specific storage data (from final_config.yaml)
+regional_storage:
+  "Auvergne Rhone Alpes":
+    batteries_puissance_MW: 100.0   # Battery power capacity
+    batteries_stockage_MWh: 200.0   # Battery energy capacity
+    STEP_puissance_MW: 3610.0        # Pumped hydro power capacity (updated from config_reg)
+    STEP_stockage_MWh: 61100.0       # Pumped hydro energy capacity (updated from config_reg)
+  
+  "Nouvelle Aquitaine":
+    batteries_puissance_MW: 700.0
+    batteries_stockage_MWh: 1400.0
+    STEP_puissance_MW: 0.0         # No major STEP (from config_reg)
+    STEP_stockage_MWh: 0.0         # No major STEP (from config_reg)
+  
+  "Occitanie":
+    batteries_puissance_MW: 500.0
+    batteries_stockage_MWh: 1000.0
+    STEP_puissance_MW: 920.0       # From config_reg
+    STEP_stockage_MWh: 38800.0     # From config_reg
+  
+  "Provence Alpes Cote d'Azur":
+    batteries_puissance_MW: 500.0
+    batteries_stockage_MWh: 1000.0
+    STEP_puissance_MW: 0.0         # No major STEP (from config_reg)
+    STEP_stockage_MWh: 0.0         # No major STEP (from config_reg)
+
+# ========================================
+# Regional Cost Multipliers
+# ========================================
+
+# Regional constraints and cost multipliers
+regional_constraints:
+  "Auvergne Rhone Alpes":
+    transport_cost_multiplier: 1.0
+    exchange_cost_multiplier: 1.0
+    dr_cost_multiplier: 1.0
+  
+  "Nouvelle Aquitaine":
+    transport_cost_multiplier: 1.0
+    exchange_cost_multiplier: 1.0
+    dr_cost_multiplier: 1.0
+    
+  "Occitanie":
+    transport_cost_multiplier: 1.0
+    exchange_cost_multiplier: 1.0
+    dr_cost_multiplier: 1.0
+    
+  "Provence Alpes Cote d'Azur":
+    transport_cost_multiplier: 1.0
+    exchange_cost_multiplier: 1.0
+    dr_cost_multiplier: 1.0
+    slack_penalty_multiplier: 1.0  # Higher slack penalty for this region
+
+# ========================================
+# Regional Production Costs from config_reg.yaml
+# ========================================
+
+# Regional costs per generation technology
+regional_costs:
+  "Auvergne Rhone Alpes":
+    hydro: 20.0         # €/MWh
+    nuclear: 30.0       # €/MWh
+    thermal_gas: 75.0   # €/MWh
+    thermal_coal: 85.0  # €/MWh
+    biofuel: 70.0      # €/MWh
+  "Nouvelle Aquitaine":
+    hydro: 20.0         # €/MWh
+    nuclear: 30.0       # €/MWh
+    thermal_gas: 75.0   # €/MWh
+    thermal_coal: 85.0  # €/MWh
+    biofuel: 70.0      # €/MWh
+  "Occitanie":
+    hydro: 25.0         # €/MWh
+    nuclear: 30.0       # €/MWh
+    thermal_gas: 75.0   # €/MWh
+    thermal_coal: 85.0  # €/MWh
+    biofuel: 70.0      # €/MWh
+  "Provence Alpes Cote d'Azur":
+    hydro: 20.0         # €/MWh
+    nuclear: 30.0       # €/MWh (reference value - no nuclear in PACA)
+    thermal_gas: 75.0   # €/MWh
+    thermal_coal: 85.0  # €/MWh
+    biofuel: 70.0      # €/MWh
+
+# ========================================
+# Path Configuration
+# ========================================
+
+# Data and results paths
+data_paths:
+  processed_data: "data/processed"

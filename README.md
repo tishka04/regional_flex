@@ -1,50 +1,86 @@
-# Regional Flexibility Optimization Model
+# Regional Flex Optimizer – Quick Start
 
-This project implements a multi-regional energy flexibility optimization model for French power grid regions. The model optimizes dispatchable technologies, storage, interregional exchanges, and demand response based on residual demand for the full year of 2022 with half-hourly time resolution.
+## 1 · Cloner & créer l’environnement
+```bash
+git clone https://github.com/mon-org/regional_flex.git
+cd regional_flex
+conda env create -f environment.yml  # ou pip install -r requirements.txt
+conda activate regional_flex          # (ou venv)
+```
 
-## Project Structure
+## 2 · Préparer les données
+```
+project_root/
+├── data/
+│   └── processed/         # *.csv ou *.parquet prêt à l’emploi
+└── config_master.yaml     # paramètres globaux + capacités régionales
+```
+Le modèle attend un **pas de temps demi‑horaire** (48 × 365 = 17 520 lignes) et les colonnes :
+- `demand` (ou `consumption`, `load`)
+- `hydro`, `nuclear`, `thermal_gas`, `thermal_coal`, `biofuel`, … (facultatif si déjà déduits)
 
-- `src/`: Source code for the optimization model
-  - `data/`: Data processing and management
-  - `model/`: Core optimization model
-  - `utils/`: Utility functions
-- `tests/`: Unit tests
-- `data/`: Input and output data
-- `config/`: Configuration files
-- `notebooks/`: Jupyter notebooks for analysis
+## 3 · Lancer une optimisation
+### Scénario complet 2022
+```bash
+python run_regional_flex.py \
+       --config config_master.yaml \
+       --data-dir data/processed \
+       --preset full_year \
+       --out results/full_year.pkl
+```
 
-## Features
+### Jours types prédéfinis
+| Preset               | Période ciblée | Exemple de commande |
+|----------------------|----------------|---------------------|
+| `winter_weekday`     | 18 janvier 22  | `--preset winter_weekday` |
+| `autumn_weekend`     | 9 octobre 22   | … |
+| `spring_weekday`     | 12 mai 22      | … |
+| `summer_holiday`     | 15 août 22     | … |
 
-- Multi-regional energy flexibility optimization for the full year of 2022
-- Half-hourly (30-minute) time resolution analysis
-- Demand response modeling and optimization
-- Energy dispatch optimization with regional constraints
-- Inter-regional energy exchange modeling
-- Storage optimization (charge/discharge cycles)
-- Renewable energy integration (solar, wind) with seasonal variations
-- Grid constraints analysis with slack variables
-- Advanced visualization of seasonal and yearly patterns
-- Memory-optimized processing for large datasets (17,520 time periods per year)
-- Comprehensive data quality control and outlier detection
+### Intervalle sur mesure
+```bash
+python run_regional_flex.py \
+       --start 2022-03-01 --end 2022-03-07 \
+       --out results/mars.pkl
+```
 
-## Installation
+## 4 · Visualiser les résultats
+### Script CLI (PNG)
+```bash
+python view_flex_results.py \
+       --pickle results/full_year.pkl \
+       --region Nouvelle_Aquitaine \
+       --out plots
+```
+Produit :
+- `dispatch_<region>.png` · Aire empilée des techno dispatchables
+- `soc_<region>.png` · État de charge des stockages
+- `slack_<region>.png` · Slack ±
+- `curtail_<region>.png` · Curtailment
+- `exchanges_<region>.png` · Flux nets inter‑régions
 
-1. Clone the repository
-2. Create a virtual environment: `python -m venv venv`
-3. Activate the virtual environment:
-   - Windows: `venv\Scripts\activate`
-   - Unix/MacOS: `source venv/bin/activate`
-4. Install dependencies: `pip install -r requirements.txt`
+Option `--all-regions` génère toutes les régions ; `--start/--end` coupe la plage.
 
-## Usage
+### Notebook interactif
+1. Ouvrir `regional_flex_dashboard_fixed.ipynb` dans Jupyter Lab.
+2. Sélectionner :
+   - un pickle dans **Results**
+   - la **Region**
+   - un preset ou dates custom
+3. *Update plots* → affichage dynamique + widgets.
 
-1. Configure parameters in `config/config.yaml`
-2. Place input data in `data/raw/`
-3. Run the optimization model:
-   ```bash
-   python src/main.py
-   ```
+## 5 · Paramétrage avancé
+- **Capacités régionales** : section `regional_capacities` du YAML.
+- **Coûts variables** : `costs:` (globaux) ou `regional_costs:`.
+- **Simplifications** : dans le code, `self.use_simplified_model` + `simplification_options`.
 
-## License
+## 6 · FAQ rapide
+| Problème | Piste / Fix |
+|----------|------------|
+| Bande violette énorme | Vérifier filtre des techno et séries nulles (palette + `non_zero` filter). |
+| Biofuel illimité | Harmoniser espaces → underscores dans les noms de région + bornage par défaut à 0 MW. |
+| Slack massif | Penalty trop bas ou contraintes trop serrées. Ajuster `slack_penalty` ou vérif. ramping/échanges. |
 
-MIT License
+---
+© 2025 Théotime Coudray – licence MIT
+
