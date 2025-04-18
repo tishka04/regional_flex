@@ -22,11 +22,7 @@ Le modèle attend un **pas de temps demi‑horaire** (48 × 365 = 17 5
 ## 3 · Lancer une optimisation
 ### Scénario complet 2022
 ```bash
-python run_regional_flex.py \
-       --config config_master.yaml \
-       --data-dir data/processed \
-       --preset full_year \
-       --out results/full_year.pkl
+python run_regional_flex.py --config config/config_master.yaml --data-dir data/processed --preset full_year --out results/full_year.pkl
 ```
 
 ### Jours types prédéfinis
