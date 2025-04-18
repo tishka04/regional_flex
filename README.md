@@ -43,10 +43,7 @@ python run_regional_flex.py \
 ## 4 · Visualiser les résultats
 ### Script CLI (PNG)
 ```bash
-python view_flex_results.py \
-       --pickle results/full_year.pkl \
-       --region Nouvelle_Aquitaine \
-       --out plots
+python view_flex_results.py --pickle results/full_year.pkl --all-regions --out plots
 ```
 Produit :
 - `dispatch_<region>.png` · Aire empilée des techno dispatchables
