@@ -1215,8 +1215,7 @@ class RegionalFlexOptimizer:
                                 f"max_exchange_{other_region}_{region}_{t}_{uuid.uuid4().hex[:8]}"
                             )
         
-        # Non-aggregated storage
-        else:
+        
             # Get storage-related constraints from config
             constraints = self.config.get('constraints', {})
             
