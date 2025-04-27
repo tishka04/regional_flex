@@ -18,7 +18,7 @@ import pandas as pd
 from typing import Dict, List, Tuple, Optional, Union
 from pulp import (
     LpProblem, LpVariable, LpMinimize, lpSum, LpStatus, 
-    LpStatusOptimal, LpConstraintEQ, LpConstraintLE, LpConstraintGE,
+    LpStatusOptimal, LpContinuous, LpStatusNotSolved, LpConstraintEQ, LpConstraintLE, LpConstraintGE,
     PULP_CBC_CMD, value
 )
 from tqdm import tqdm
@@ -991,19 +991,25 @@ class RegionalFlexOptimizer:
                         self.variables[f"storage_soc_{tech}_{region}"][t] >= 0,
                         f"stor_soc_min_{tech}_{region}_{t}_{uuid.uuid4().hex[:6]}"
                     )
-                if i < len(T) - 1:
-                    t_next = T[i + 1]
-                    if all(
-                        t_next in self.variables[k] 
-                        for k in (
-                            f"storage_soc_{tech}_{region}",
-                            f"storage_charge_{tech}_{region}",
-                            f"storage_discharge_{tech}_{region}",
-                            )
-                        ):
+                    # Apply self-discharge for batteries
+                    if i < len(T) - 1:
+                        t_next = T[i + 1]
+                        if all(
+                            t_next in self.variables[k] 
+                            for k in (
+                                f"storage_soc_{tech}_{region}",
+                                f"storage_charge_{tech}_{region}",
+                                f"storage_discharge_{tech}_{region}",
+                                )
+                            ):
+                            # Default: no self-discharge
+                            soc_decay = 1.0
+                            if tech == "batteries":
+                                # Get self-discharge rate from config, default to 0 if missing
+                                soc_decay = 1.0 - float(self.config.get('storage_params', {}).get('batteries', {}).get('self_discharge_per_hour', 0.0))
                             self.model += (
                                 self.variables[f"storage_soc_{tech}_{region}"][t_next]
-                                == self.variables[f"storage_soc_{tech}_{region}"][t]
+                                == self.variables[f"storage_soc_{tech}_{region}"][t] * soc_decay
                                 + self.variables[f"storage_charge_{tech}_{region}"][t] * charge_eff
                                 - self.variables[f"storage_discharge_{tech}_{region}"][t] * (1.0 / discharge_eff),
                                 f"stor_dyn_{tech}_{region}_{t}_{uuid.uuid4().hex[:6]}"
@@ -1202,7 +1208,7 @@ class RegionalFlexOptimizer:
         if self.use_simplified_model and self.simplification_options.get("lp_relaxation", False):
             logger.info("Converting MILP to LP by relaxing integer constraints")
             for var in self.binary_vars:
-                var.cat = pulp.LpContinuous    # ← plus de référence à pl
+                var.cat = LpContinuous    # ← plus de référence à pl
                 var.lowBound = 0
                 var.upBound  = 1
         
@@ -1264,7 +1270,7 @@ class RegionalFlexOptimizer:
             
         except Exception as e:
             logger.error(f"Error solving model: {e}")
-            return pulp.LpStatusNotSolved, time.time() - start_time
+            return LpStatusNotSolved, time.time() - start_time
 
     def run_model(self, time_limit=None, threads=None):
         """Run the optimization model - wrapper for the solve method.
@@ -1277,7 +1283,55 @@ class RegionalFlexOptimizer:
             Tuple[str, float]: Optimization status and solve time in seconds
         """
         return self.solve(time_limit=time_limit, threads=threads)
-    
+
+    # ------------------------------------------------------------------
+    #  UTILITAIRES  DUELS / PRIX NODAUX
+    # ------------------------------------------------------------------
+    def get_nodal_prices(self):
+        """
+        Retourne un dict {region: pandas.Series(prices)} des prix nodaux λ
+        (shadow price des contraintes balance_<region>_<t>).
+        Appelle-la **uniquement** après une résolution MILP optimale.
+        """
+        if self.model.status != 1:        # 1 == LpStatusOptimal
+            raise RuntimeError("Le MILP n'est pas optimal → pas de duals fiables.")
+
+        # --- 1. construire un modèle LP « fixé » ----------------------------
+        lp = self.model.copy()
+        for v in self.binary_vars:        # on fige les binaires
+            w = lp.variablesDict()[v.name]
+            w.lowBound = w.upBound = v.value()
+            w.cat = 'Continuous'
+
+        # --- 2. résoudre la relaxation linéaire -----------------------------
+        lp.solve(PULP_CBC_CMD(msg=False))
+        if lp.status != 1:
+            raise RuntimeError("LP fixe non optimale ; duals indisponibles.")
+
+        # --- 3. lire les duals ----------------------------------------------
+        prices = {r: {} for r in self.regions}
+
+        for cname, c in lp.constraints.items():
+            if not cname.startswith("balance_"):
+                continue
+
+            # nom = balance_<region>_<timestep>
+            body = cname[len("balance_"):]
+            # enlève le préfixe
+            region, t = body.rsplit("_", 1)           # coupe sur le dernier « _ »
+            try:
+                t = int(t)
+            except ValueError:
+                continue                              # au cas où
+
+            prices.setdefault(region, {})[t] = c.pi   # dual value
+
+        # Séries pandas pour plus de confort
+        for r in prices:
+            prices[r] = pd.Series(prices[r]).sort_index()
+
+        return prices
+
     def get_results(self) -> Dict:
         """Extract results from the optimized model.
         

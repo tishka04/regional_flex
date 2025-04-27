@@ -98,6 +98,8 @@ def main():
     logging.basicConfig(level=logging.INFO, format='%(levelname)s – %(message)s')
 
     # decide interval
+    import pandas as pd 
+
     if args.preset:
         start, end = PRESETS[args.preset]
     else:
@@ -123,10 +125,29 @@ def main():
     from src.model.optimizer_regional_flex import RegionalFlexOptimizer
     opt = RegionalFlexOptimizer(args.config)
     opt.build_model(data_int, time_periods=time_periods)
-    status, tsolve = opt.solve(threads=args.threads)
-    if status != 1:
-        print('WARNING – model not optimal')
+    opt.model.writeLP("debug.lp")           # ❶ écrit le LP lisible par CBC
 
+    from pulp import PULP_CBC_CMD           # ❷ paramètre CBC avec l’option IIS
+    cbc_iis = PULP_CBC_CMD(msg=True,
+                       options=["findiis", "logLevel", "2"])
+    status, _ = opt.solve(solver=cbc_iis, threads=args.threads)
+
+    if status != 1:
+        print("⚠️  MILP non optimal (status =", status, ") – pas de prix nodaux .")
+    else:
+        nodal = opt.get_nodal_prices()
+        import pandas as pd
+        df_price = (pd.DataFrame(nodal)
+                    .sort_index()
+                    .rename_axis('timestep'))
+
+        # tableau de demande déjà chargé plus haut
+        dt_h = 0.5     # pas demi-horaire
+        if 'demand' in data_int:
+            expense = (df_price * data_int['demand'] * dt_h).sum().sum()
+            print(f"Dépense spot simulée : {expense/1e9:.2f} G€")
+
+    # --- save results -------------------------------------------------------
     results = opt.get_results()
     pd.to_pickle(results, args.out)
     print(f'Results stored to {args.out}')
