@@ -134,14 +134,6 @@ class RegionalFlexOptimizer:
             self.storage_capacities = self.config['regional_storage']
             logger.info(f"Loaded storage capacities for {len(self.storage_capacities)} regions")
         
-        # Regional cost multipliers
-        self.regional_cost_multipliers = {}
-        if 'regional_constraints' in self.config:
-            self.regional_cost_multipliers = self.config['regional_constraints']
-            logger.info(f"Loaded regional cost multipliers for {len(self.regional_cost_multipliers)} regions")
-
-        
-        
         # Initialize dictionaries for regional parameters
         self.regional_multipliers = {}
         self.tech_params = {}
@@ -150,22 +142,30 @@ class RegionalFlexOptimizer:
         # This allows us to relax them to continuous when using LP relaxation
         self.binary_vars = []
         
-        # Initialize the regional cost multipliers if not already set
-        if not hasattr(self, 'regional_cost_multipliers') or self.regional_cost_multipliers is None:
-            self.regional_cost_multipliers = {}
-        
         if 'regional_costs' in self.config:
             self.regional_costs = self.config['regional_costs']
             logger.info(f"Loaded regional costs for {len(self.regional_costs)} regions")
 
         # --- harmonise TOUS les noms de région (espace -> underscore) -------------
-        def _norm(r): return r.replace(" ", "_")
+        def _norm(r):
+            return r.replace(" ", "_")  \
+            .replace("'", "")   \
+            .replace("-", "_")  # if you also want to normalize dashes
 
         self.regions           = [_norm(r) for r in self.regions]
         self.tech_capacities   = {_norm(r): caps for r, caps in self.tech_capacities.items()}
         self.regional_costs    = {_norm(r): c    for r, c    in self.regional_costs.items()}
         self.storage_capacities= {_norm(r): s    for r, s    in self.storage_capacities.items()}
-        self.regional_constraints = {_norm(r): d for r, d in self.regional_cost_multipliers.items()}
+
+    # ------------------------------------------------------------
+    def _loss(self, region_from, region_to) -> float:
+        """Retourne la fraction de pertes entre deux régions."""
+        dist = self.config.get('regional_distances', {}) \
+                         .get(region_from, {}) \
+                         .get(region_to, 0.0)
+        return dist * self.config.get('loss_factor_per_km', 0.0)
+    # ------------------------------------------------------------
+
             
     def build_model(self, regional_data: Dict[str, pd.DataFrame], time_periods=None):
         """Build the optimization model with variables, objective, and constraints.
@@ -199,355 +199,235 @@ class RegionalFlexOptimizer:
         
         logger.info(f"Model built with {len(self.model.variables())} variables and {len(self.model.constraints)} constraints")
     
-    def _init_variables(self, data: Dict[str, pd.DataFrame], time_periods):
-        """Initialize optimization variables for all regions and technologies.
-        
-        Args:
-            data (Dict[str, pd.DataFrame]): Dictionary mapping region names to data frames
-            time_periods: Time periods to optimize for
+    # ------------------------------------------------------------
+        # ---------------------------------------------------------------------
+    def _init_variables(
+        self,
+        data: Dict[str, pd.DataFrame],
+        time_periods: Optional[List[Union[int, pd.Timestamp]]]
+    ) -> None:
+        """
+        Initialise toutes les variables du modèle :
+        - dispatch techno
+        - stockage (soc / charge / décharge)
+        - demand-response
+        - slack ±
+        - curtailment
+        - flux dirigés inter-régions (flow_out_i_j ≥ 0)
+        - flag d’activation DR (binaire ou relaxé)
         """
         logger.info("Initializing optimization variables")
-        
-        # Check if we're using LP relaxation (converting binary/integer vars to continuous)
-        using_lp_relaxation = self.use_simplified_model and self.simplification_options.get("lp_relaxation", False)
-        if using_lp_relaxation:
-            logger.info("Using LP relaxation: converting all binary/integer variables to continuous")
-        
-        # Determine the number of time steps
-        if isinstance(time_periods, list):
-            T = time_periods
-        else:
-            # Use all time periods from the first region's data
-            first_region = next(iter(data.values()))
-            T = list(range(len(first_region)))
-        
-        # Process each region
-        for region in self.regions:
-            regional_data = data.get(region)
-            if regional_data is None:
-                logger.warning(f"No data provided for region {region}")
-                continue
-            
-            # 1. Dispatch variables for each technology
-            for tech in self.dispatch_techs:
-                self.variables[f"dispatch_{tech}_{region}"] = {}
-                
-                for t in T:
-                    # Create dispatch variable with lower bound of 0 (can't dispatch negative power)
-                    self.variables[f"dispatch_{tech}_{region}"][t] = LpVariable(
-                        f"dispatch_{tech}_{region}_{t}", 
-                        lowBound=0
-                    )
-            
-            # 2. Storage variables for each storage technology
-            for storage_tech in self.storage_techs:
-                # Storage level (state of charge)
-                self.variables[f"storage_soc_{storage_tech}_{region}"] = {}
-                # Charging power
-                self.variables[f"storage_charge_{storage_tech}_{region}"] = {}
-                # Discharging power
-                self.variables[f"storage_discharge_{storage_tech}_{region}"] = {}
-                
-                for t in T:
-                    # Storage level (can't go negative)
-                    self.variables[f"storage_soc_{storage_tech}_{region}"][t] = LpVariable(
-                        f"storage_soc_{storage_tech}_{region}_{t}",
-                        lowBound=0
-                    )
-                    
-                    # Charging (can't go negative)
-                    self.variables[f"storage_charge_{storage_tech}_{region}"][t] = LpVariable(
-                        f"storage_charge_{storage_tech}_{region}_{t}",
-                        lowBound=0
-                    )
-                    
-                    # Discharging (can't go negative)
-                    self.variables[f"storage_discharge_{storage_tech}_{region}"][t] = LpVariable(
-                        f"storage_discharge_{storage_tech}_{region}_{t}",
-                        lowBound=0
-                    )
-            
-            # 3. Demand response variables (can be positive or negative)
-            self.variables[f"demand_response_{region}"] = {}
-            for t in T:
-                # No bounds on DR - can be positive (increase) or negative (decrease)
-                self.variables[f"demand_response_{region}"][t] = LpVariable(
-                    f"demand_response_{region}_{t}"
-                )
-            
-            # 4. Slack variables for balance equation
-            self.variables[f"slack_pos_{region}"] = {}
-            self.variables[f"slack_neg_{region}"] = {}
-            for t in T:
-                # Positive slack
-                self.variables[f"slack_pos_{region}"][t] = LpVariable(
-                    f"slack_pos_{region}_{t}",
-                    lowBound=0
-                )
-                
-                # Negative slack
-                self.variables[f"slack_neg_{region}"][t] = LpVariable(
-                    f"slack_neg_{region}_{t}", 
-                    lowBound=0
-                )
 
-            # 5. Curtailment (MWh renonçant à être injectés)
-            self.variables[f"curtail_{region}"] = {}
-            for t in T:
-                self.variables[f"curtail_{region}"][t] = LpVariable(
-                    f"curtail_{region}_{t}", lowBound=0  # ≥0, pas de bornes supérieures
-                )
-        
-        # 5. Exchange and transport variables between regions
-        for i, r1 in enumerate(self.regions):
-            for r2 in self.regions[i+1:]:
-                # Exchange variables - can be positive or negative
-                self.variables[f"exchange_{r1}_{r2}"] = {}
-                # Transport variables - can be positive or negative
-                self.variables[f"transport_{r1}_{r2}"] = {}
-                # Absolute value variables for exchange (for objective function)
-                self.variables[f"abs_exchange_{r1}_{r2}"] = {}
-                # Absolute value variables for transport
-                self.variables[f"abs_transport_{r1}_{r2}"] = {}
-                
-                for t in T:
-                    # Exchange between regions (can be positive or negative)
-                    self.variables[f"exchange_{r1}_{r2}"][t] = LpVariable(
-                        f"exchange_{r1}_{r2}_{t}"
-                    )
-                    
-                    # Transport between regions (can be positive or negative)
-                    self.variables[f"transport_{r1}_{r2}"][t] = LpVariable(
-                        f"transport_{r1}_{r2}_{t}"
-                    )
-                    
-                    # Absolute value variables for exchange (for objective function)
-                    self.variables[f"abs_exchange_{r1}_{r2}"][t] = LpVariable(
-                        f"abs_exchange_{r1}_{r2}_{t}",
-                        lowBound=0
-                    )
-                    
-                    # Absolute value variables for transport
-                    self.variables[f"abs_transport_{r1}_{r2}"][t] = LpVariable(
-                        f"abs_transport_{r1}_{r2}_{t}",
-                        lowBound=0
-                    )
-        
-        # Add time-dependent variables for demand response activation
-        for region in self.regions:
-            # 1. Demand response activation (binary or continuous with LP relaxation)
-            dr_var_name = f"dr_active_{region}"
-            self.variables[dr_var_name] = {}
-            
-            for t in T:
-                if using_lp_relaxation:
-                    self.variables[dr_var_name][t] = LpVariable(
-                        f"{dr_var_name}_{t}",
-                        lowBound=0,
-                        upBound=1,
-                        cat='Continuous'
-                    )
-                else:
-                    self.variables[dr_var_name][t] = LpVariable(
-                        f"{dr_var_name}_{t}",
-                        cat='Binary'
-                    )
-                    # Track which variables should be binary
-                    self.binary_vars.append(self.variables[dr_var_name][t])
-    
-    def _add_objective(self, data: Dict[str, pd.DataFrame], time_periods):
-        """Define the objective function for minimizing costs.
-        
-        Args:
-            data (Dict[str, pd.DataFrame]): Dictionary mapping region names to data frames
-            time_periods: Time periods to optimize for
-        """
-        logger.info("Adding objective function")
-        
-        # Determine time periods
+        # ---- option LP-relax --------------------------------------------
+        using_lp_relax = (
+            self.use_simplified_model
+            and self.simplification_options.get("lp_relaxation", False)
+        )
+
+        # ---- horizon temporel -------------------------------------------
         if isinstance(time_periods, list):
             T = time_periods
         else:
-            first_region = next(iter(data.values()))
-            T = list(range(len(first_region)))
-        
-        # Get costs from config
-        costs = self.config.get('costs', {})
-        
-        # Default costs (fallback values)
+            first_df = next(iter(data.values()))
+            T = list(range(len(first_df)))
+
+        # (ré)initialisation propres
+        self.variables   = {}
+        self.binary_vars = []
+
+        # ---- 1. variables intra-région -----------------------------------
+        for region in self.regions:
+
+            # a) dispatch
+            for tech in self.dispatch_techs:
+                k = f"dispatch_{tech}_{region}"
+                self.variables[k] = {t: LpVariable(f"{k}_{t}", lowBound=0) for t in T}
+
+            # b) stockage
+            for st in self.storage_techs:
+                for prefix in ("storage_soc", "storage_charge", "storage_discharge"):
+                    k = f"{prefix}_{st}_{region}"
+                    self.variables[k] = {t: LpVariable(f"{k}_{t}", lowBound=0) for t in T}
+
+            # c) demand-response (±)
+            k = f"demand_response_{region}"
+            self.variables[k] = {t: LpVariable(f"{k}_{t}") for t in T}
+
+            # d) slack ±
+            for sign in ("pos", "neg"):
+                k = f"slack_{sign}_{region}"
+                self.variables[k] = {t: LpVariable(f"{k}_{t}", lowBound=0) for t in T}
+
+            # e) curtailment
+            k = f"curtail_{region}"
+            self.variables[k] = {t: LpVariable(f"{k}_{t}", lowBound=0) for t in T}
+
+            # f) flag DR
+            k = f"dr_active_{region}"
+            self.variables[k] = {}
+            for t in T:
+                if using_lp_relax:
+                    v = LpVariable(f"{k}_{t}", lowBound=0, upBound=1, cat="Continuous")
+                else:
+                    v = LpVariable(f"{k}_{t}", cat="Binary")
+                    self.binary_vars.append(v)
+                self.variables[k][t] = v
+
+        # ---- 2. flux dirigés inter-régions -------------------------------
+        for i in self.regions:
+            for j in self.regions:
+                if i == j:
+                    continue
+                k = f"flow_out_{i}_{j}"
+                self.variables[k] = {t: LpVariable(f"{k}_{t}", lowBound=0) for t in T}
+
+        logger.info(
+            f"Created {len(self.variables)} variable groups "
+            f"({sum(len(v) for v in self.variables.values())} scalar vars)"
+        )
+
+
+    # ---------------------------------------------------------------------------
+    def _add_objective(
+            self,
+            data: Dict[str, pd.DataFrame],
+            time_periods: Optional[List[Union[int, pd.Timestamp]]]
+        ) -> None:
+        """
+        Crée la fonction objectif du modèle : minimisation du coût total
+        (dispatch, stockage, DR, flux, slack, curtailment).
+        """
+
+        logger.info("Adding objective function")
+
+        # -------- horizon temporel ---------------------------------------------
+        if isinstance(time_periods, list):
+            T = time_periods
+        else:
+            first_df = next(iter(data.values()))
+            T = list(range(len(first_df)))
+
+        # -------- barème de coûts ----------------------------------------------
+        # récupère ceux de la config, sinon valeur par défaut
+        costs = dict(self.config.get("costs", {}))
+
         default_costs = {
-            'hydro': 30.0,
-            'nuclear': 40.0,
-            'thermal': 85.0,
-            'thermal_gas': 80.0,
-            'thermal_coal': 90.0,
-            'biofuel': 70.0,
-            'dispatch': 50.0,
-            'storage': 5.0,
-            'demand_response': 120.0,
-            'exchange': 25.0,
-            'storage_charge': 4.0,
-            'storage_discharge': 3.0,
-            'transport_exchange': 30.0,
-            'slack_penalty': 50000.0
+            # production
+            "hydro": 30.0, "nuclear": 40.0,
+            "thermal_gas": 80.0, "thermal_coal": 90.0,
+            "biofuel": 70.0,
+
+            # stockage (€/MWh d’énergie)
+            "storage_charge": 4.0, "storage_discharge": 3.0,
+
+            # flexibilité
+            "demand_response": 120.0,
+            "flow": 25.0,                 # coût de transport par MWh
+            "flow_km_coeff": 0.0,         # (optionnel) €/MWh·km pour pertes / péage
+
+            # pénalités
+            "slack_penalty": 50_000.0,
+            "curtailment_penalty": 10_000.0
         }
-        
-        # Merge default costs with config costs
-        for key, value in default_costs.items():
-            if key not in costs:
-                costs[key] = value
-        
-        # Initialize objective function
+        # complète les manquants
+        for k, v in default_costs.items():
+            costs.setdefault(k, v)
+
+        # -------- initialisation de l’objectif ---------------------------------
         objective = 0
-        
-        # 1. Dispatch costs (by technology and region)
+
+        # -- 1. Dispatch ---------------------------------------------------------
         for region in self.regions:
             for tech in self.dispatch_techs:
-                # Determine the technology cost for this region
-                tech_cost = costs[tech]  # Default from global costs
-                
-                # Check if there's a regional specific cost
-                if region in self.regional_costs and tech in self.regional_costs[region]:
+                tech_cost = costs.get(tech, default_costs[tech])
+
+                # éventuel coût régional spécifique
+                if region in getattr(self, "regional_costs", {}) and \
+                   tech   in self.regional_costs[region]:
                     tech_cost = self.regional_costs[region][tech]
-                    logger.debug(f"Using regional cost for {tech} in {region}: {tech_cost}")
-                
-                # Add to objective: sum of dispatch * cost for all time periods
-                if f"dispatch_{tech}_{region}" in self.variables:
-                    for t in T:
-                        if t in self.variables[f"dispatch_{tech}_{region}"]:
-                            objective += self.variables[f"dispatch_{tech}_{region}"][t] * tech_cost
-        
-        # 2. Storage costs
+
+                var_key = f"dispatch_{tech}_{region}"
+                if var_key not in self.variables:
+                    continue
+
+                for t, var in self.variables[var_key].items():
+                    if t in T:
+                        objective += var * tech_cost
+
+        # -- 2. Stockage ---------------------------------------------------------
         for region in self.regions:
-            for storage_tech in self.storage_techs:
-                # Get technology-specific storage costs if available
-                charge_cost_key = f"storage_{storage_tech}_charge"
-                discharge_cost_key = f"storage_{storage_tech}_discharge"
-                
-                charge_cost = costs.get(charge_cost_key, costs.get('storage_charge', 4.0))
-                discharge_cost = costs.get(discharge_cost_key, costs.get('storage_discharge', 3.0))
-                
-                # Add regional cost multipliers if available
-                if (region in self.regional_cost_multipliers and 
-                    'storage_cost_multiplier' in self.regional_cost_multipliers[region]):
-                    multiplier = self.regional_cost_multipliers[region]['storage_cost_multiplier']
-                    charge_cost *= multiplier
-                    discharge_cost *= multiplier
-                
-                # Add to objective: sum of charge/discharge * cost for all time periods
+            for st in self.storage_techs:
+                charge_key = f"storage_charge_{st}_{region}"
+                discharge_key = f"storage_discharge_{st}_{region}"
+
+                charge_c  = costs.get(f"storage_{st}_charge",
+                                      costs["storage_charge"])
+                discharge_c = costs.get(f"storage_{st}_discharge",
+                                        costs["storage_discharge"])
+
                 for t in T:
-                    # Add charging cost
-                    if (f"storage_charge_{storage_tech}_{region}" in self.variables and
-                        t in self.variables[f"storage_charge_{storage_tech}_{region}"]):
-                        objective += self.variables[f"storage_charge_{storage_tech}_{region}"][t] * charge_cost
-                    
-                    # Add discharging cost
-                    if (f"storage_discharge_{storage_tech}_{region}" in self.variables and
-                        t in self.variables[f"storage_discharge_{storage_tech}_{region}"]):
-                        objective += self.variables[f"storage_discharge_{storage_tech}_{region}"][t] * discharge_cost
-        
-        # 3. Demand response costs
-        dr_cost = costs.get('demand_response', 120.0)
+                    if charge_key in self.variables and t in self.variables[charge_key]:
+                        objective += self.variables[charge_key][t] * charge_c
+                    if discharge_key in self.variables and t in self.variables[discharge_key]:
+                        objective += self.variables[discharge_key][t] * discharge_c
+
+        # -- 3. Demand-response (valeur absolue) ---------------------------------
+        dr_cost = costs["demand_response"]
         for region in self.regions:
-            # Apply regional cost multiplier if available
-            regional_dr_cost = dr_cost
-            if (region in self.regional_cost_multipliers and 
-                'dr_cost_multiplier' in self.regional_cost_multipliers[region]):
-                regional_dr_cost *= self.regional_cost_multipliers[region]['dr_cost_multiplier']
-            
-            # Add to objective: sum of absolute value of demand response * cost
-            if f"demand_response_{region}" in self.variables:
-                for t in T:
-                    if t in self.variables[f"demand_response_{region}"]:
-                        # Create absolute value variables for demand response
-                        pos_dr = LpVariable(f"pos_dr_{region}_{t}", lowBound=0)
-                        neg_dr = LpVariable(f"neg_dr_{region}_{t}", lowBound=0)
-                        
-                        # Add constraints to model absolute value
-                        self.model += (self.variables[f"demand_response_{region}"][t] == pos_dr - neg_dr, 
-                                      f"dr_abs_value_{region}_{t}")
-                        
-                        # Add cost of demand response (both positive and negative) to objective
-                        objective += (pos_dr + neg_dr) * regional_dr_cost
-        
-        # 4. Exchange costs
-        exchange_cost = costs.get('exchange', 25.0)
-        for i, r1 in enumerate(self.regions):
-            for r2 in self.regions[i+1:]:
-                # Calculate the exchange cost between these regions
-                # Check for regional cost modifiers
-                r1_multiplier = 1.0
-                r2_multiplier = 1.0
-                
-                if r1 in self.regional_cost_multipliers and 'exchange_cost_multiplier' in self.regional_cost_multipliers[r1]:
-                    r1_multiplier = self.regional_cost_multipliers[r1]['exchange_cost_multiplier']
-                
-                if r2 in self.regional_cost_multipliers and 'exchange_cost_multiplier' in self.regional_cost_multipliers[r2]:
-                    r2_multiplier = self.regional_cost_multipliers[r2]['exchange_cost_multiplier']
-                
-                # Average the multipliers for exchanges
-                regional_exchange_cost = exchange_cost * (r1_multiplier + r2_multiplier) / 2
-                
-                # Add to objective: sum of absolute exchange * cost for all time periods
-                for t in T:
-                    if (f"abs_exchange_{r1}_{r2}" in self.variables and
-                        t in self.variables[f"abs_exchange_{r1}_{r2}"]):
-                        objective += self.variables[f"abs_exchange_{r1}_{r2}"][t] * regional_exchange_cost
-        
-        # 5. Transport costs
-        transport_cost = costs.get('transport_exchange', 30.0)
-        for i, r1 in enumerate(self.regions):
-            for r2 in self.regions[i+1:]:
-                # Calculate the transport cost between these regions
-                # Check for regional cost modifiers
-                r1_multiplier = 1.0
-                r2_multiplier = 1.0
-                
-                if r1 in self.regional_cost_multipliers and 'transport_cost_multiplier' in self.regional_cost_multipliers[r1]:
-                    r1_multiplier = self.regional_cost_multipliers[r1]['transport_cost_multiplier']
-                
-                if r2 in self.regional_cost_multipliers and 'transport_cost_multiplier' in self.regional_cost_multipliers[r2]:
-                    r2_multiplier = self.regional_cost_multipliers[r2]['transport_cost_multiplier']
-                
-                # Average the multipliers for transport
-                regional_transport_cost = transport_cost * (r1_multiplier + r2_multiplier) / 2
-                
-                # Add to objective: sum of absolute transport * cost for all time periods
-                for t in T:
-                    if (f"abs_transport_{r1}_{r2}" in self.variables and
-                        t in self.variables[f"abs_transport_{r1}_{r2}"]):
-                        objective += self.variables[f"abs_transport_{r1}_{r2}"][t] * regional_transport_cost
-        
-        # 6. Slack penalties (highest cost to minimize slack usage)
-        slack_penalty = costs.get('slack_penalty', 50000.0)
+            dr_key = f"demand_response_{region}"
+            if dr_key not in self.variables:
+                continue
+            for t in T:
+                if t not in self.variables[dr_key]:
+                    continue
+                pos = LpVariable(f"pos_dr_{region}_{t}", lowBound=0)
+                neg = LpVariable(f"neg_dr_{region}_{t}", lowBound=0)
+                # valeur absolue
+                self.model += self.variables[dr_key][t] == pos - neg, \
+                              f"abs_DR_{region}_{t}"
+                objective += (pos + neg) * dr_cost
+
+        # -- 4. Flux inter-régions ----------------------------------------------
+        flow_cost      = costs["flow"]
+        flow_km_coeff  = costs["flow_km_coeff"]
+        distances_km   = self.config.get("distances_km", {})  # optionnel
+
+        for i in self.regions:
+            for j in self.regions:
+                if i == j:
+                    continue
+                key = f"flow_out_{i}_{j}"
+                if key not in self.variables:
+                    continue
+                # distance éventuelle pour moduler le coût
+                d_ij = distances_km.get(i, {}).get(j, 0.0)
+                unit_cost = flow_cost + flow_km_coeff * d_ij
+                for t, var in self.variables[key].items():
+                    if t in T:
+                        objective += var * unit_cost
+
+
+        # -- 6. Slack et curtailment ---------------------------------------------
+        slack_pen = costs["slack_penalty"]
+        curt_pen  = costs["curtailment_penalty"]
+
         for region in self.regions:
-            # Apply regional slack penalty multiplier if available
-            regional_slack_penalty = slack_penalty
-            if (region in self.regional_cost_multipliers and 
-                'slack_penalty_multiplier' in self.regional_cost_multipliers[region]):
-                regional_slack_penalty *= self.regional_cost_multipliers[region]['slack_penalty_multiplier']
-            
-            # Add to objective: sum of slack variables * penalty for all time periods
             for t in T:
                 if (f"slack_pos_{region}" in self.variables and
-                    t in self.variables[f"slack_pos_{region}"]):
-                    objective += self.variables[f"slack_pos_{region}"][t] * regional_slack_penalty
-                
+                        t in self.variables[f"slack_pos_{region}"]):
+                    objective += self.variables[f"slack_pos_{region}"][t] * slack_pen
                 if (f"slack_neg_{region}" in self.variables and
-                    t in self.variables[f"slack_neg_{region}"]):
-                    objective += self.variables[f"slack_neg_{region}"][t] * regional_slack_penalty
+                        t in self.variables[f"slack_neg_{region}"]):
+                    objective += self.variables[f"slack_neg_{region}"][t] * slack_pen
+                if (f"curtail_{region}" in self.variables and
+                        t in self.variables[f"curtail_{region}"]):
+                    objective += self.variables[f"curtail_{region}"][t] * curt_pen
 
-        # 6 bis. Curtailment penalty
-        curtail_pen = costs.get('curtailment_penalty', 10_000.0)
-        for region in self.regions:
-            if f"curtail_{region}" in self.variables:
-                for t in T:
-                    if t in self.variables[f"curtail_{region}"]:
-                        objective += self.variables[f"curtail_{region}"][t] * curtail_pen
-
-        
-        # Set model objective
+        # -------- affectation à PuLP -------------------------------------------
         self.model += objective
+        logger.info("Objective function added.")
+# ---------------------------------------------------------------------------
+
         
     def _add_constraints(self, data: Dict[str, pd.DataFrame], time_periods):
         """Add constraints to the optimization model.
@@ -595,402 +475,110 @@ class RegionalFlexOptimizer:
             self._add_dr_and_ramping_constraints(data, T)
             pbar.update(1)
             
-            # 6. Flexibility diversity constraints to ensure balanced use
-            pbar.set_description("Flexibility diversity constraints")
-            self._add_flexibility_diversity_constraints(data, T)
-            pbar.update(1)
+            # 6. Flexibility diversity constraints to ensure balanced use (temporarily skipped)
+            # pbar.set_description("Flexibility diversity constraints")
+            # self._add_flexibility_diversity_constraints(data, T)
+            # pbar.update(1)
     
-    def _add_energy_balance_constraints(self, data: Dict[str, pd.DataFrame], T):
-        """Add energy balance constraints for each region and time period.
-        
-        Balance: sum(dispatch) + sum(discharge) - sum(charge) + exchanges = demand ± DR ± slack
-        
-        Args:
-            data (Dict[str, pd.DataFrame]): Dictionary mapping region names to data frames
-            T (List): List of time periods
+        # ---------------------------------------------------------------------
+    def _add_energy_balance_constraints(
+        self,
+        data: Dict[str, pd.DataFrame],
+        T: List[Union[int, pd.Timestamp]]
+    ) -> None:
         """
-        # Process each region separately
+        Production + décharges – charges – exports + imports(1-perte)
+        + DR – curtail + slack_pos – slack_neg = demande
+        """
+        logger.info("Adding energy-balance constraints")
+
         for region in self.regions:
-            regional_data = data.get(region)
-            if regional_data is None:
-                logger.warning(f"No data for region {region}, skipping energy balance constraints")
+            df = data.get(region)
+            if df is None:
+                logger.warning(f"No data for region {region}")
                 continue
-                
-            # Process each time period for this region
+
             for t in T:
-                # Skip if the time index is out of range
-                if t >= len(regional_data):
-                    logger.debug(f"Time index {t} out of range for {region} with data length {len(regional_data)}")
+                if t >= len(df):
                     continue
-                    
-                # Get demand for this time period (column name may vary, try several options)
-                demand = None
-                for col in ['consumption', 'demand', 'load']:
-                    if col in regional_data.columns:
-                        demand = float(regional_data.iloc[t][col])
-                        break
-                
-                if demand is None:
-                    logger.warning(f"No demand data found for {region} at time {t}, using 0")
-                    demand = 0.0
-                
-                # Create the left side of the balance equation
-                balance_expr = 0
-                
-                # 1. Add all dispatch variables for technologies
-                for tech in self.dispatch_techs:
-                    if f"dispatch_{tech}_{region}" in self.variables and t in self.variables[f"dispatch_{tech}_{region}"]:
-                        balance_expr += self.variables[f"dispatch_{tech}_{region}"][t]
-                
-                # 2. Add storage discharge (positive contribution)
-                for storage_tech in self.storage_techs:
-                    if (f"storage_discharge_{storage_tech}_{region}" in self.variables and 
-                        t in self.variables[f"storage_discharge_{storage_tech}_{region}"]):
-                        balance_expr += self.variables[f"storage_discharge_{storage_tech}_{region}"][t]
-                
-                # 3. Subtract storage charge (negative contribution)
-                for storage_tech in self.storage_techs:
-                    if (f"storage_charge_{storage_tech}_{region}" in self.variables and 
-                        t in self.variables[f"storage_charge_{storage_tech}_{region}"]):
-                        balance_expr -= self.variables[f"storage_charge_{storage_tech}_{region}"][t]
-                
-                # 4. Add exchange with other regions
-                for other_region in self.regions:
-                    if other_region == region:
-                        continue
-                    
-                    # Arrange regions alphabetically to match variable naming
-                    r1, r2 = sorted([region, other_region])
-                    
-                    # If this region is r1, a positive exchange means exporting energy (negative contribution)
-                    # If this region is r2, a positive exchange means importing energy (positive contribution)
-                    if f"exchange_{r1}_{r2}" in self.variables and t in self.variables[f"exchange_{r1}_{r2}"]:
-                        if region == r1:
-                            balance_expr -= self.variables[f"exchange_{r1}_{r2}"][t]
-                        else:  # region == r2
-                            balance_expr += self.variables[f"exchange_{r1}_{r2}"][t]
-                    
-                    # Transport works the same way
-                    if f"transport_{r1}_{r2}" in self.variables and t in self.variables[f"transport_{r1}_{r2}"]:
-                        if region == r1:
-                            balance_expr -= self.variables[f"transport_{r1}_{r2}"][t]
-                        else:  # region == r2
-                            balance_expr += self.variables[f"transport_{r1}_{r2}"][t]
-                
-                # 5. Add demand response (can be positive or negative)
-                if f"demand_response_{region}" in self.variables and t in self.variables[f"demand_response_{region}"]:
-                    balance_expr += self.variables[f"demand_response_{region}"][t]
-
-                # 5 bis. Curtailment (énergie disponible mais non injectée)
-                if f"curtail_{region}" in self.variables and t in self.variables[f"curtail_{region}"]:
-                    balance_expr -= self.variables[f"curtail_{region}"][t]
-                
-                # 6. Add slack variables (to ensure feasibility)
-                slack_pos_term = 0
-                slack_neg_term = 0
-                
-                if f"slack_pos_{region}" in self.variables and t in self.variables[f"slack_pos_{region}"]:
-                    slack_pos_term = self.variables[f"slack_pos_{region}"][t]
-                
-                if f"slack_neg_{region}" in self.variables and t in self.variables[f"slack_neg_{region}"]:
-                    slack_neg_term = self.variables[f"slack_neg_{region}"][t]
-                
-                # Balance equation: generation + import - export + DR + slack = demand
-                try:
-                    self.model += (
-                        balance_expr + slack_pos_term - slack_neg_term == demand,
-                        f"balance_{region}_{t}_{uuid.uuid4().hex[:8]}"
-                    )
-                except Exception as e:
-                    logger.error(f"Error adding balance constraint for {region} at time {t}: {e}")
-    
-    def _add_storage_constraints(self, data: Dict[str, pd.DataFrame], T):
-        """Add constraints for storage technologies (batteries, pumped hydro, etc.)
-        
-        Args:
-            data (Dict[str, pd.DataFrame]): Dictionary mapping region names to data frames
-            T (List): List of time periods
-        """
-        logger.info("Adding storage constraints")
-        
-        # Skip if no storage technologies defined
-        if not hasattr(self, 'storage_techs') or not self.storage_techs:
-            logger.warning("No storage technologies defined, skipping storage constraints")
-            return
-        
-        # Process each region and storage technology
-        for region in self.regions:
-            for tech in self.storage_techs:
-                # Get storage parameters from config
-                # Get separate charge and discharge efficiencies
-                charge_efficiency = self.config.get('storage_params', {}).get(tech, {}).get('charge_efficiency', 0.95)  # Default 95%
-                discharge_efficiency = self.config.get('storage_params', {}).get(tech, {}).get('discharge_efficiency', 0.95)  # Default 95%
-                # For backward compatibility, also check for combined efficiency
-                if 'efficiency' in self.config.get('storage_params', {}).get(tech, {}):
-                    combined_efficiency = self.config.get('storage_params', {}).get(tech, {}).get('efficiency')
-                    # Split the combined efficiency into charge and discharge components
-                    charge_efficiency = discharge_efficiency = combined_efficiency ** 0.5
-                max_capacity = 0
-                
-                # Get max capacity if available in regional capacities
-                if region in self.tech_capacities and tech in self.tech_capacities[region]:
-                    max_capacity = float(self.tech_capacities[region][tech])
-                
-                # Skip if no storage capacity for this tech/region
-                if max_capacity <= 0:
-                    continue
-                
-                # Get max power for charge/discharge if specified, otherwise use capacity
-                max_power = self.config.get('storage_params', {}).get(tech, {}).get('max_power_ratio', 1.0) * max_capacity
-                
-                # Apply regional multiplier if available
-                if region in self.regional_multipliers:
-                    if f'{tech}_capacity_multiplier' in self.regional_multipliers[region]:
-                        max_capacity *= self.regional_multipliers[region][f'{tech}_capacity_multiplier']
-                    if f'{tech}_power_multiplier' in self.regional_multipliers[region]:
-                        max_power *= self.regional_multipliers[region][f'{tech}_power_multiplier']
-                
-                # Check if storage variables exist for this tech/region
-                storage_vars_exist = (
-                    f"storage_charge_{tech}_{region}" in self.variables and
-                    f"storage_discharge_{tech}_{region}" in self.variables and
-                    f"storage_soc_{tech}_{region}" in self.variables
+                demand = next(
+                    (float(df.iloc[t][c]) for c in ("consumption", "demand", "load")
+                     if c in df.columns),
+                    0.0
                 )
-                
-                if not storage_vars_exist:
-                    continue
-                
-                # 1. Add power capacity constraints for each time period
-                for t in T:
-                    # Skip if variables don't exist for this time period
-                    if (t not in self.variables[f"storage_charge_{tech}_{region}"] or
-                        t not in self.variables[f"storage_discharge_{tech}_{region}"]):
-                        continue
-                    
-                    # Max charge power constraint
-                    self.model += (
-                        self.variables[f"storage_charge_{tech}_{region}"][t] <= max_power,
-                        f"storage_max_charge_{tech}_{region}_{t}_{uuid.uuid4().hex[:8]}"
-                    )
-                    
-                    # Max discharge power constraint
-                    self.model += (
-                        self.variables[f"storage_discharge_{tech}_{region}"][t] <= max_power,
-                        f"storage_max_discharge_{tech}_{region}_{t}_{uuid.uuid4().hex[:8]}"
-                    )
-                    
-                    # Ensure charge and discharge are not both positive in the same period
-                    # This is handled by binary variables already created in _init_variables
-                    if f"storage_mode_{tech}_{region}" in self.variables and t in self.variables[f"storage_mode_{tech}_{region}"]:
-                        binary_var = self.variables[f"storage_mode_{tech}_{region}"][t]
-                        
-                        # When binary=1, discharge must be 0
-                        self.model += (
-                            self.variables[f"storage_discharge_{tech}_{region}"][t] <= max_power * (1 - binary_var),
-                            f"storage_mode_discharge_{tech}_{region}_{t}_{uuid.uuid4().hex[:8]}"
-                        )
-                        
-                        # When binary=0, charge must be 0
-                        self.model += (
-                            self.variables[f"storage_charge_{tech}_{region}"][t] <= max_power * binary_var,
-                            f"storage_mode_charge_{tech}_{region}_{t}_{uuid.uuid4().hex[:8]}"
-                        )
-                
-                # 2. Add state of charge (SOC) constraints and dynamics
-                for i in range(len(T)):
-                    t = T[i]
-                    
-                    # Skip if SOC variable doesn't exist for this time period
-                    if t not in self.variables[f"storage_soc_{tech}_{region}"]:
-                        continue
-                    
-                    # Maximum energy storage capacity constraint
-                    self.model += (
-                        self.variables[f"storage_soc_{tech}_{region}"][t] <= max_capacity,
-                        f"storage_max_soc_{tech}_{region}_{t}_{uuid.uuid4().hex[:8]}"
-                    )
-                    
-                    # Minimum energy storage capacity constraint (usually 0)
-                    self.model += (
-                        self.variables[f"storage_soc_{tech}_{region}"][t] >= 0,
-                        f"storage_min_soc_{tech}_{region}_{t}_{uuid.uuid4().hex[:8]}"
-                    )
-                    
-                    # SOC dynamics: SOC[t+1] = SOC[t] + charge[t]*efficiency - discharge[t]/efficiency
-                    if i < len(T) - 1:
-                        t_next = T[i+1]
-                        
-                        # Skip if next time period variables don't exist
-                        if (t_next not in self.variables[f"storage_soc_{tech}_{region}"] or
-                            t not in self.variables[f"storage_charge_{tech}_{region}"] or
-                            t not in self.variables[f"storage_discharge_{tech}_{region}"]):
-                            continue
-                        
-                        # Check if times are consecutive for proper SOC tracking
-                        is_consecutive = (isinstance(t, int) and isinstance(t_next, int) and t_next == t + 1) or \
-                                        (not isinstance(t, int) and not isinstance(t_next, int) and \
-                                         (t_next - t).total_seconds() / 3600 <= 1.01)  # Within 1.01 hours (allowing for rounding)
-                        
-                        if not is_consecutive:
-                            continue
-                        
-                        # SOC dynamics constraint with separate charge and discharge efficiencies
-                        self.model += (
-                            self.variables[f"storage_soc_{tech}_{region}"][t_next] == \
-                            self.variables[f"storage_soc_{tech}_{region}"][t] + \
-                            self.variables[f"storage_charge_{tech}_{region}"][t] * charge_efficiency - \
-                            self.variables[f"storage_discharge_{tech}_{region}"][t] / discharge_efficiency,
-                            f"storage_soc_dynamics_{tech}_{region}_{t}_{uuid.uuid4().hex[:8]}"
-                        )
 
-    def _add_exchange_constraints(self, data: Dict[str, pd.DataFrame], T):
-        """Add network exchange constraints between regions.
-        
-        Args:
-            data (Dict[str, pd.DataFrame]): Dictionary mapping region names to data frames
-            T (List): List of time periods
+                # --- composantes ------------------------------------------
+                dispatch_terms  = [
+                    self.variables[f"dispatch_{tec}_{region}"][t]
+                    for tec in self.dispatch_techs
+                ]
+                discharge_terms = [
+                    self.variables[f"storage_discharge_{st}_{region}"][t]
+                    for st in self.storage_techs
+                ]
+                charge_terms    = [
+                    self.variables[f"storage_charge_{st}_{region}"][t]
+                    for st in self.storage_techs
+                ]
+                dr_term      = self.variables[f"demand_response_{region}"][t]
+                curtail_term = self.variables[f"curtail_{region}"][t]
+                slack_pos    = self.variables[f"slack_pos_{region}"][t]
+                slack_neg    = self.variables[f"slack_neg_{region}"][t]
+
+                # --- flux et pertes ---------------------------------------
+                exports = lpSum(
+                    self.variables[f"flow_out_{region}_{oth}"][t]
+                    for oth in self.regions if oth != region
+                )
+                imports = lpSum(
+                    self.variables[f"flow_out_{oth}_{region}"][t]
+                    * (1.0 - self._loss(oth, region))
+                    for oth in self.regions if oth != region
+                )
+
+                # --- contrainte de bilan ----------------------------------
+                self.model += (
+                    lpSum(dispatch_terms) +
+                    lpSum(discharge_terms) -
+                    lpSum(charge_terms)   -
+                    exports               +
+                    imports               +
+                    dr_term               -
+                    curtail_term          +
+                    slack_pos             -
+                    slack_neg             == demand,
+                    f"balance_{region}_{t}"
+                )
+
+
+        # ---------------------------------------------------------------------
+    def _add_exchange_constraints(
+        self,
+        data: Dict[str, pd.DataFrame],
+        T: List[Union[int, pd.Timestamp]]
+    ) -> None:
         """
-        logger.info("Adding exchange network constraints")
-        
-        # Skip if only one region
-        if len(self.regions) <= 1:
-            logger.info("Only one region, skipping exchange constraints")
-            return
-            
-        # Get constraints from config
-        constraints = self.config.get('constraints', {})
-        
-        # Default constraints if not specified
-        max_exchange = constraints.get('max_exchange', 20000.0)  # MW
-        exchange_capacity = constraints.get('exchange_capacity', 20000.0)  # MW
-        transport_capacity = constraints.get('transport_capacity', 20000.0)  # MW
-        
-        # Relaxed exchange constraints (if enabled)
-        relaxed_exchange = self.use_simplified_model and self.simplification_options.get("relaxed_exchange", False)
-        
-        # Process each region pair
-        for i, r1 in enumerate(self.regions):
-            for j, r2 in enumerate(self.regions[i+1:], i+1):
-                # Region pairs are stored alphabetically for consistency
-                region1, region2 = sorted([r1, r2])
-                
-                # 1. Exchange capacity constraints
-                exchange_var_name = f"exchange_{region1}_{region2}"
-                if exchange_var_name in self.variables:
-                    for t in T:
-                        if t not in self.variables[exchange_var_name]:
-                            continue
-                            
-                        # Apply exchange capacity constraints (bidirectional)
-                        self.model += (
-                            self.variables[exchange_var_name][t] <= exchange_capacity,
-                            f"max_exchange_pos_{region1}_{region2}_{t}_{uuid.uuid4().hex[:8]}"
-                        )
-                        
-                        # Allow negative flow (from region2 to region1)
-                        self.model += (
-                            self.variables[exchange_var_name][t] >= -exchange_capacity,
-                            f"max_exchange_neg_{region1}_{region2}_{t}_{uuid.uuid4().hex[:8]}"
-                        )
-                
-                # 2. Transport capacity constraints (if separate from exchange)
-                transport_var_name = f"transport_{region1}_{region2}"
-                if transport_var_name in self.variables:
-                    for t in T:
-                        if t not in self.variables[transport_var_name]:
-                            continue
-                            
-                        # Apply transport capacity constraints (bidirectional)
-                        self.model += (
-                            self.variables[transport_var_name][t] <= transport_capacity,
-                            f"max_transport_pos_{region1}_{region2}_{t}_{uuid.uuid4().hex[:8]}"
-                        )
-                        
-                        # Allow negative flow (from region2 to region1)
-                        self.model += (
-                            self.variables[transport_var_name][t] >= -transport_capacity,
-                            f"max_transport_neg_{region1}_{region2}_{t}_{uuid.uuid4().hex[:8]}"
-                        )
-                
-                # 3. Combined exchange and transport limit (if applicable)
-                if exchange_var_name in self.variables and transport_var_name in self.variables:
-                    for t in T:
-                        if (t not in self.variables[exchange_var_name] or 
-                            t not in self.variables[transport_var_name]):
-                            continue
-                            
-                        # Apply combined limit if relaxed_exchange is disabled
-                        if not relaxed_exchange:
-                            self.model += (
-                                self.variables[exchange_var_name][t] + self.variables[transport_var_name][t] <= max_exchange,
-                                f"max_combined_exchange_{region1}_{region2}_{t}_{uuid.uuid4().hex[:8]}"
-                            )
-                            
-                        # Add constraints for absolute value variables for exchange
-                        abs_exchange_var = f"abs_exchange_{region1}_{region2}"
-                        if abs_exchange_var in self.variables and t in self.variables[abs_exchange_var]:
-                            # abs_exchange >= exchange (handles positive values)
-                            self.model += (
-                                self.variables[abs_exchange_var][t] >= self.variables[exchange_var_name][t],
-                                f"abs_exchange_pos_{region1}_{region2}_{t}_{uuid.uuid4().hex[:8]}"
-                            )
-                            # abs_exchange >= -exchange (handles negative values)
-                            self.model += (
-                                self.variables[abs_exchange_var][t] >= -self.variables[exchange_var_name][t],
-                                f"abs_exchange_neg_{region1}_{region2}_{t}_{uuid.uuid4().hex[:8]}"
-                            )
-                            
-                        # Add constraints for absolute value variables for transport
-                        abs_transport_var = f"abs_transport_{region1}_{region2}"
-                        if abs_transport_var in self.variables and t in self.variables[abs_transport_var]:
-                            # abs_transport >= transport (handles positive values)
-                            self.model += (
-                                self.variables[abs_transport_var][t] >= self.variables[transport_var_name][t],
-                                f"abs_transport_pos_{region1}_{region2}_{t}_{uuid.uuid4().hex[:8]}"
-                            )
-                            # abs_transport >= -transport (handles negative values)
-                            self.model += (
-                                self.variables[abs_transport_var][t] >= -self.variables[transport_var_name][t],
-                                f"abs_transport_neg_{region1}_{region2}_{t}_{uuid.uuid4().hex[:8]}"
-                            )
-                            
-        # Special constraints for grid stability (if applicable)
-        if 'grid_stability' in constraints:
-            stability_params = constraints['grid_stability']
-            
-            # Maximum total exchange per region
-            if 'max_total_exchange_per_region' in stability_params:
-                max_total = float(stability_params['max_total_exchange_per_region'])
-                
-                for region in self.regions:
-                    for t in T:
-                        # Calculate total exchange for this region
-                        total_exchange_expr = 0
-                        
-                        # Add all exchanges involving this region
-                        for other_region in self.regions:
-                            if other_region == region:
-                                continue
-                                
-                            # Sort regions alphabetically to match variable naming
-                            r1, r2 = sorted([region, other_region])
-                            
-                            # Add exchange variable if it exists
-                            exchange_var_name = f"exchange_{r1}_{r2}"
-                            if exchange_var_name in self.variables and t in self.variables[exchange_var_name]:
-                                total_exchange_expr += self.variables[exchange_var_name][t]
-                            
-                            # Add transport variable if it exists
-                            transport_var_name = f"transport_{r1}_{r2}"
-                            if transport_var_name in self.variables and t in self.variables[transport_var_name]:
-                                total_exchange_expr += self.variables[transport_var_name][t]
-                        
-                        # Apply total exchange limit
-                        if total_exchange_expr != 0:  # Only add constraint if there are exchange variables
-                            self.model += (
-                                total_exchange_expr <= max_total,
-                                f"max_total_exchange_{region}_{t}_{uuid.uuid4().hex[:8]}"
-                            )
+        Capacité des lignes : flow_out_i_j ≤ cap_{i→j}
+        """
+        logger.info("Adding network-capacity constraints")
+
+        caps = self.config.get("regional_transport_capacities", {})
+
+        for i in self.regions:
+            for j in self.regions:
+                if i == j:
+                    continue
+                cap = caps.get(i, {}).get(j, caps.get(j, {}).get(i, 0.0))
+                if cap <= 0:
+                    continue
+
+                k = f"flow_out_{i}_{j}"
+                for t in T:
+                    self.model += (
+                        self.variables[k][t] <= cap,
+                        f"cap_flow_{i}_{j}_{t}"
+                    )
+
 
     def _add_dr_and_ramping_constraints(self, data: Dict[str, pd.DataFrame], T):
         """Add demand response and ramping constraints for each region.
@@ -1002,7 +590,7 @@ class RegionalFlexOptimizer:
         logger.info("Adding demand response and ramping constraints")
         
         # Get constraints from config
-        constraints = self.config.get('constraints', {})
+        constraints = self.config.get('constraints') or {}
         
         # Skip ramping constraints if enabled in simplification options
         skip_ramping = self.use_simplified_model and self.simplification_options.get("skip_ramping", False)
@@ -1012,7 +600,7 @@ class RegionalFlexOptimizer:
         # 1. Add demand response constraints
         for region in self.regions:
             # Get demand response parameters from config for this region
-            dr_params = self.config.get('demand_response', {}).get(region, {})
+            dr_params = self.config.get('demand_response') or {}.get(region, {})
             
             # Default DR parameters if not specified
             max_dr_shift = dr_params.get('max_shift', 0.0)  # % of demand
@@ -1153,12 +741,24 @@ class RegionalFlexOptimizer:
         logger.info("Adding capacity constraints")
         
         # Get global constraints
-        constraints = self.config.get('constraints', {})
+        constraints = self.config.get('constraints') or {}
         
         # Add capacity constraints for each region and technology
         for region in self.regions:
             # Get regional capacities
             regional_caps = self.tech_capacities.get(region, {})
+            
+            # Enforce minimum nuclear dispatch if specified in config
+            min_frac = self.config.get('min_nuclear_capacity_fraction', 0.0)
+            if 'nuclear' in regional_caps and min_frac > 0:
+                nuclear_cap = regional_caps['nuclear']
+                for t in T:
+                    varname = f"dispatch_nuclear_{region}"
+                    if varname in self.variables and t in self.variables[varname]:
+                        self.model += (
+                            self.variables[varname][t] >= min_frac * nuclear_cap,
+                            f"min_nuclear_dispatch_{region}_{t}"
+                        )
             
             # Add dispatch capacity constraints
             for tech in self.dispatch_techs:
@@ -1180,7 +780,7 @@ class RegionalFlexOptimizer:
                     for t in T:
                         # Get storage capacity for this technology
                         storage_key = f"{storage_tech}_puissance_MW"
-                        max_capacity = self.storage_capacities.get(region, {}).get(storage_key, constraints.get('max_storage', 5000.0))
+                        max_capacity = (self.storage_capacities.get(region) or {}).get(storage_key, constraints.get('max_storage', 5000.0))
                         
                         # Charge rate constraint
                         self.model += (
@@ -1193,165 +793,229 @@ class RegionalFlexOptimizer:
                             self.variables[f"storage_discharge_{storage_tech}_{region}"][t] <= max_capacity,
                             f"max_discharge_{storage_tech}_{region}_{t}_{uuid.uuid4().hex[:8]}"
                         )
-            
-            # Add exchange capacity constraints
-            for other_region in self.regions:
-                if other_region != region:
-                    # Get regional exchange capacity
-                    max_exchange = constraints.get('max_exchange', 2000.0)
-                    
-                    # Add constraints for both directions
-                    if f"exchange_{region}_{other_region}" in self.variables:
-                        for t in T:
-                            self.model += (
-                                self.variables[f"exchange_{region}_{other_region}"][t] <= max_exchange,
-                                f"max_exchange_{region}_{other_region}_{t}_{uuid.uuid4().hex[:8]}"
-                            )
-                    
-                    if f"exchange_{other_region}_{region}" in self.variables:
-                        for t in T:
-                            self.model += (
-                                self.variables[f"exchange_{other_region}_{region}"][t] <= max_exchange,
-                                f"max_exchange_{other_region}_{region}_{t}_{uuid.uuid4().hex[:8]}"
-                            )
         
+        # Get storage-related constraints from config
+        constraints = self.config.get('constraints') or {}
         
-            # Get storage-related constraints from config
-            constraints = self.config.get('constraints', {})
-            
-            # Default storage constraints
-            default_storage_constraints = {
-                'storage_efficiency': 0.85,  # Round-trip efficiency
-                'max_storage_capacity': 10000,  # MWh
-                'max_storage_charge_rate': 1000,  # MW
-                'max_storage_discharge_rate': 1000,  # MW
-                'storage_charge_efficiency': 0.95,  # Charge efficiency
-                'storage_discharge_efficiency': 0.95  # Discharge efficiency
-            }
-            
-            # Use config values or defaults
-            for key, value in default_storage_constraints.items():
-                if key not in constraints:
-                    constraints[key] = value
-            
-            # Storage constraints for each region and storage technology
-            for region in self.regions:
-                for storage_tech in self.storage_techs:
-                    # Get storage capacities from config
-                    max_energy_capacity = constraints['max_storage_capacity']
-                    max_charge_rate = constraints['max_storage_charge_rate']
-                    max_discharge_rate = constraints['max_storage_discharge_rate']
-                    
-                    # Check for technology and region specific capacity values
-                    storage_capacity_key = f"{storage_tech}_capacity"
-                    if region in self.tech_capacities and storage_capacity_key in self.tech_capacities[region]:
-                        max_energy_capacity = float(self.tech_capacities[region][storage_capacity_key])
-                        logger.debug(f"Using regional {storage_tech} capacity for {region}: {max_energy_capacity} MWh")
-                        
-                        # Also adjust charge/discharge rates based on capacity
-                        # Typical charge/discharge rates are about 1/4 to 1/6 of total capacity for most storage techs
-                        max_charge_rate = min(max_energy_capacity / 4, constraints['max_storage_charge_rate'])
-                        max_discharge_rate = min(max_energy_capacity / 4, constraints['max_storage_discharge_rate'])
-                    
-                    # Create variable for storage level (state of charge)
-                    if f"storage_level_{storage_tech}_{region}" not in self.variables:
-                        self.variables[f"storage_level_{storage_tech}_{region}"] = {}
-                        
-                        for t in T:
-                            self.variables[f"storage_level_{storage_tech}_{region}"][t] = LpVariable(
-                                f"storage_level_{storage_tech}_{region}_{t}",
-                                lowBound=0,
-                                upBound=max_energy_capacity
-                            )
-                    
-                    # Get efficiencies
-                    charge_efficiency = constraints.get(f"{storage_tech}_charge_efficiency", 
-                                                       constraints['storage_charge_efficiency'])
-                    discharge_efficiency = constraints.get(f"{storage_tech}_discharge_efficiency", 
-                                                          constraints['storage_discharge_efficiency'])
-                    
-                    # 1. Charging and discharging rate constraints
-                    for t in T:
-                        # Charge rate constraint
-                        if f"storage_charge_{storage_tech}_{region}" in self.variables and t in self.variables[f"storage_charge_{storage_tech}_{region}"]:
-                            self.model += (
-                                self.variables[f"storage_charge_{storage_tech}_{region}"][t] <= max_charge_rate,
-                                f"max_charge_{storage_tech}_{region}_{t}_{uuid.uuid4().hex[:8]}"
-                            )
-                        
-                        # Discharge rate constraint
-                        if f"storage_discharge_{storage_tech}_{region}" in self.variables and t in self.variables[f"storage_discharge_{storage_tech}_{region}"]:
-                            self.model += (
-                                self.variables[f"storage_discharge_{storage_tech}_{region}"][t] <= max_discharge_rate,
-                                f"max_discharge_{storage_tech}_{region}_{t}_{uuid.uuid4().hex[:8]}"
-                            )
-                    
-                    # 2. Storage level dynamics - initial condition
-                    if T and 0 in T:
-                        # Start with storage at 50% unless otherwise specified
-                        initial_storage_level = max_energy_capacity * 0.5
-                        
-                        # Check if storage initialization parameters exist
-                        storage_initial_key = f"{storage_tech}_initial"
-                        
-                        # Try to find initial storage level in various config sections
-                        if 'storage_initial' in self.config:
-                            if region in self.config['storage_initial'] and storage_tech in self.config['storage_initial'][region]:
-                                initial_storage_level = float(self.config['storage_initial'][region][storage_tech])
-                        elif region in self.tech_params and storage_initial_key in self.tech_params[region]:
-                            initial_storage_level = float(self.tech_params[region][storage_initial_key])
-                        # If we have region in regional_params, try that too
-                        elif hasattr(self, 'regional_params') and region in self.regional_params and storage_initial_key in self.regional_params[region]:
-                            initial_storage_level = float(self.regional_params[region][storage_initial_key])
-                        
-                        # Set initial storage level
+        # Map config 'max_storage' to 'max_storage_capacity' if present
+        if 'max_storage' in constraints and 'max_storage_capacity' not in constraints:
+            constraints['max_storage_capacity'] = float(constraints['max_storage'])
+        # Default storage constraints
+        default_storage_constraints = {
+            'storage_efficiency': 0.85,  # Round-trip efficiency
+            'max_storage_capacity': 10000,  # MWh
+            'max_storage_charge_rate': 1000,  # MW
+            'max_storage_discharge_rate': 1000,  # MW
+            'storage_charge_efficiency': 0.95,  # Charge efficiency
+            'storage_discharge_efficiency': 0.95  # Discharge efficiency
+        }
+        
+        # Use config values or defaults
+        for key, value in default_storage_constraints.items():
+            if key not in constraints:
+                constraints[key] = value
+        
+        # Storage constraints for each region and storage technology
+        for region in self.regions:
+            for storage_tech in self.storage_techs:
+                # Get regional storage capacities from config
+                storage_region_caps = self.storage_capacities.get(region, {})
+                max_energy_capacity = float(storage_region_caps.get(
+                    f"{storage_tech}_stockage_MWh", constraints.get('max_storage_capacity', 10000)
+                ))
+                max_charge_rate = float(storage_region_caps.get(
+                    f"{storage_tech}_puissance_MW", constraints.get('max_storage_charge_rate', max_energy_capacity)
+                ))
+                max_discharge_rate = float(storage_region_caps.get(
+                    f"{storage_tech}_puissance_MW", constraints.get('max_storage_discharge_rate', max_charge_rate)
+                ))
+                
+                # Get efficiencies
+                charge_efficiency = constraints.get(f"{storage_tech}_charge_efficiency", 
+                                                   constraints['storage_charge_efficiency'])
+                discharge_efficiency = constraints.get(f"{storage_tech}_discharge_efficiency", 
+                                                      constraints['storage_discharge_efficiency'])
+                
+                # 1. Charging and discharging rate constraints
+                for t in T:
+                    # Charge rate constraint
+                    if f"storage_charge_{storage_tech}_{region}" in self.variables and t in self.variables[f"storage_charge_{storage_tech}_{region}"]:
                         self.model += (
-                            self.variables[f"storage_level_{storage_tech}_{region}"][0] == initial_storage_level,
-                            f"initial_storage_{storage_tech}_{region}_{uuid.uuid4().hex[:8]}"
+                            self.variables[f"storage_charge_{storage_tech}_{region}"][t] <= max_charge_rate,
+                            f"max_charge_{storage_tech}_{region}_{t}_{uuid.uuid4().hex[:8]}"
                         )
                     
-                    # 3. Storage level dynamics - time evolution
-                    for i in range(len(T) - 1):
-                        t = T[i]
-                        t_next = T[i+1]
-                        
-                        # If the times are consecutive, use standard evolution
-                        is_consecutive = (isinstance(t, int) and isinstance(t_next, int) and t_next == t + 1) or \
-                                        (not isinstance(t, int) and not isinstance(t_next, int) and \
-                                         (t_next - t).total_seconds() / 3600 <= 1.01)  # Within 1.01 hours (allowing for rounding)
-                        
-                        if not is_consecutive:
-                            continue
-                        
-                        # Storage evolution: level[t+1] = level[t] + charge[t]*efficiency - discharge[t]/efficiency
-                        if all(k in self.variables and t in self.variables[k] and t_next in self.variables[k] for k in [
-                            f"storage_level_{storage_tech}_{region}",
-                            f"storage_charge_{storage_tech}_{region}", 
-                            f"storage_discharge_{storage_tech}_{region}"
-                        ]):
-                            self.model += (
-                                self.variables[f"storage_level_{storage_tech}_{region}"][t_next] == \
-                                self.variables[f"storage_level_{storage_tech}_{region}"][t] + \
-                                self.variables[f"storage_charge_{storage_tech}_{region}"][t] * charge_efficiency - \
-                                self.variables[f"storage_discharge_{storage_tech}_{region}"][t] * (1.0 / discharge_efficiency),
-                                f"storage_evolution_{storage_tech}_{region}_{t}_{uuid.uuid4().hex[:8]}"
-                            )
+                    # Discharge rate constraint
+                    if f"storage_discharge_{storage_tech}_{region}" in self.variables and t in self.variables[f"storage_discharge_{storage_tech}_{region}"]:
+                        self.model += (
+                            self.variables[f"storage_discharge_{storage_tech}_{region}"][t] <= max_discharge_rate,
+                            f"max_discharge_{storage_tech}_{region}_{t}_{uuid.uuid4().hex[:8]}"
+                        )
+                
+                # 2. Storage level dynamics - initial condition
+                if T and 0 in T:
+                    # Start with storage at 50% unless otherwise specified
+                    initial_storage_level = max_energy_capacity * 0.5
                     
-                    # 4. Optional: cyclical constraint (end level = start level)
-                    skip_cyclical = self.use_simplified_model and self.simplification_options.get("skip_cyclical_storage", False)
-                    if not skip_cyclical and self.config.get('use_cyclical_storage', False) and T and T[0] in self.variables[f"storage_level_{storage_tech}_{region}"] and T[-1] in self.variables[f"storage_level_{storage_tech}_{region}"]:
-                        # Add the constraint that the final storage level should be close to the initial
+                    # Check if storage initialization parameters exist
+                    storage_initial_key = f"{storage_tech}_initial"
+                    
+                    # Try to find initial storage level in various config sections
+                    if 'storage_initial' in self.config:
+                        if region in self.config['storage_initial'] and storage_tech in self.config['storage_initial'][region]:
+                            initial_storage_level = float(self.config['storage_initial'][region][storage_tech])
+                    elif region in self.tech_params and storage_initial_key in self.tech_params[region]:
+                        initial_storage_level = float(self.tech_params[region][storage_initial_key])
+                    # If we have region in regional_params, try that too
+                    elif hasattr(self, 'regional_params') and region in self.regional_params and storage_initial_key in self.regional_params[region]:
+                        initial_storage_level = float(self.regional_params[region][storage_initial_key])
+                    
+                    # Set initial storage level
+                    self.model += (
+                        self.variables[f"storage_soc_{storage_tech}_{region}"][0] == initial_storage_level,
+                        f"initial_storage_{storage_tech}_{region}_{uuid.uuid4().hex[:8]}"
+                    )
+                
+                # 3. Storage level dynamics - time evolution
+                for i in range(len(T) - 1):
+                    t = T[i]
+                    t_next = T[i+1]
+                    
+                    # If the times are consecutive, use standard evolution
+                    is_consecutive = (isinstance(t, int) and isinstance(t_next, int) and t_next == t + 1) or \
+                                    (not isinstance(t, int) and not isinstance(t_next, int) and \
+                                     (t_next - t).total_seconds() / 3600 <= 1.01)  # Within 1.01 hours (allowing for rounding)
+                    
+                    if not is_consecutive:
+                        continue
+                    
+                    # Storage evolution: level[t+1] = level[t] + charge[t]*efficiency - discharge[t]/efficiency
+                    if all(k in self.variables and t in self.variables[k] and t_next in self.variables[k] for k in [
+                        f"storage_soc_{storage_tech}_{region}",
+                        f"storage_charge_{storage_tech}_{region}", 
+                        f"storage_discharge_{storage_tech}_{region}"
+                    ]):
                         self.model += (
-                            self.variables[f"storage_level_{storage_tech}_{region}"][T[-1]] >= \
-                            self.variables[f"storage_level_{storage_tech}_{region}"][T[0]] * 0.95,
-                            f"cyclical_storage_min_{storage_tech}_{region}_{uuid.uuid4().hex[:8]}"
+                            self.variables[f"storage_soc_{storage_tech}_{region}"][t_next] == \
+                            self.variables[f"storage_soc_{storage_tech}_{region}"][t] + \
+                            self.variables[f"storage_charge_{storage_tech}_{region}"][t] * charge_efficiency - \
+                            self.variables[f"storage_discharge_{storage_tech}_{region}"][t] * (1.0 / discharge_efficiency),
+                            f"storage_evolution_{storage_tech}_{region}_{t}_{uuid.uuid4().hex[:8]}"
                         )
-                        
-                        self.model += (
-                            self.variables[f"storage_level_{storage_tech}_{region}"][T[-1]] <= \
-                            self.variables[f"storage_level_{storage_tech}_{region}"][T[0]] * 1.05,
-                            f"cyclical_storage_max_{storage_tech}_{region}_{uuid.uuid4().hex[:8]}"
-                        )
+                
+                # 4. Optional: cyclical constraint (end level = start level)
+                skip_cyclical = self.use_simplified_model and self.simplification_options.get("skip_cyclical_storage", False)
+                if not skip_cyclical and self.config.get('use_cyclical_storage', False) and T and T[0] in self.variables[f"storage_soc_{storage_tech}_{region}"] and T[-1] in self.variables[f"storage_soc_{storage_tech}_{region}"]:
+                    # Add the constraint that the final storage level should be close to the initial
+                    self.model += (
+                        self.variables[f"storage_soc_{storage_tech}_{region}"][T[-1]] >= \
+                        self.variables[f"storage_soc_{storage_tech}_{region}"][T[0]] * 0.95,
+                        f"cyclical_storage_min_{storage_tech}_{region}_{uuid.uuid4().hex[:8]}"
+                    )
+                    
+                    self.model += (
+                        self.variables[f"storage_soc_{storage_tech}_{region}"][T[-1]] <= \
+                        self.variables[f"storage_soc_{storage_tech}_{region}"][T[0]] * 1.05,
+                        f"cyclical_storage_max_{storage_tech}_{region}_{uuid.uuid4().hex[:8]}"
+                    )
+
+    # ---------------------------------------------------------------------
+    #  STORAGE CONSTRAINTS  (corrected version – uses regional_storage keys)
+    # ---------------------------------------------------------------------
+    def _add_storage_constraints(
+            self,
+            data: Dict[str, pd.DataFrame],
+            T: List[Union[int, pd.Timestamp]]
+        ) -> None:
+        """Add power- and energy-related constraints for all storage techs."""
+        logger.info("Adding storage constraints")
+
+        if not self.storage_techs:
+            logger.warning("No storage technologies defined, skipping section")
+            return
+        for region in self.regions:
+            region_store_cfg = self.storage_capacities.get(region, {})
+            for tech in self.storage_techs:
+                # ---------- efficiencies ----------------------------------
+                sp = self.config.get('storage_params', {}).get(tech, {})
+                charge_eff = sp.get('charge_efficiency', 0.95)
+                discharge_eff = sp.get('discharge_efficiency', 0.95)
+                if 'efficiency' in sp:                       # round-trip
+                    charge_eff = discharge_eff = sp['efficiency'] ** 0.5
+                # ---------- capacities ------------------------------------
+                max_capacity = float(
+                    region_store_cfg.get(f"{tech}_stockage_MWh", 0)
+                )
+                if max_capacity == 0 and \
+                    region in self.tech_capacities and tech in self.tech_capacities[region]:
+                    max_capacity = float(self.tech_capacities[region][tech])
+                if max_capacity <= 0:
+                    continue
+                max_power = float(
+                    region_store_cfg.get(
+                        f"{tech}_puissance_MW",
+                        sp.get('max_power_ratio', 1.0) * max_capacity
+                    )
+                )
+                if region in self.regional_multipliers:
+                    mult = self.regional_multipliers[region]
+                    max_capacity *= mult.get(f"{tech}_capacity_multiplier", 1.0)
+                    max_power    *= mult.get(f"{tech}_power_multiplier",    1.0)
+                has_vars = all(
+                    f"{prefix}_{tech}_{region}" in self.variables
+                    for prefix in ("storage_charge", "storage_discharge", "storage_soc")
+                )
+                if not has_vars:
+                    continue
+        # ---------- POWER limits -----------------------------------
+                for t in T:
+                    if t not in self.variables[f"storage_charge_{tech}_{region}"]:
+                        continue
+                    self.model += (
+                        self.variables[f"storage_charge_{tech}_{region}"][t] <= max_power,
+                        f"stor_max_charge_{tech}_{region}_{t}_{uuid.uuid4().hex[:6]}"
+                    )
+                    self.model += (
+                        self.variables[f"storage_discharge_{tech}_{region}"][t] <= max_power,
+                        f"stor_max_discharge_{tech}_{region}_{t}_{uuid.uuid4().hex[:6]}"
+                    )
+    # ---------- SOC bounds & dynamics --------------------------
+                for i, t in enumerate(T):
+                    if t not in self.variables[f"storage_soc_{tech}_{region}"]:
+                        continue
+                    self.model += (
+                        self.variables[f"storage_soc_{tech}_{region}"][t] <= max_capacity,
+                           f"stor_soc_max_{tech}_{region}_{t}_{uuid.uuid4().hex[:6]}"
+                    )
+                    self.model += (
+                        self.variables[f"storage_soc_{tech}_{region}"][t] >= 0,
+                        f"stor_soc_min_{tech}_{region}_{t}_{uuid.uuid4().hex[:6]}"
+                    )
+                if i < len(T) - 1:
+                    t_next = T[i + 1]
+                    if all(
+                        t_next in self.variables[k] 
+                        for k in (
+                            f"storage_soc_{tech}_{region}",
+                            f"storage_charge_{tech}_{region}",
+                            f"storage_discharge_{tech}_{region}",
+                            )
+                        ):
+                            self.model += (
+                                self.variables[f"storage_soc_{tech}_{region}"][t_next]
+                                == self.variables[f"storage_soc_{tech}_{region}"][t]
+                                + self.variables[f"storage_charge_{tech}_{region}"][t] * charge_eff
+                                - self.variables[f"storage_discharge_{tech}_{region}"][t] * (1.0 / discharge_eff),
+                                f"stor_dyn_{tech}_{region}_{t}_{uuid.uuid4().hex[:6]}"
+                            )
+        # ---------- cyclical constraint (optional) -----------------
+        if self.config.get('use_cyclical_storage', False) and len(T) >= 2:
+            self.model += (
+                self.variables[f"storage_soc_{tech}_{region}"][T[0]]
+                == self.variables[f"storage_soc_{tech}_{region}"][T[-1]],
+                f"stor_cyc_{tech}_{region}_{uuid.uuid4().hex[:6]}"
+                )
+
 
     def _add_cyclical_storage_constraints(self, T):
         """Add constraints for cyclical storage (end SOC = start SOC)
@@ -1402,9 +1066,10 @@ class RegionalFlexOptimizer:
         logger.info("Adding flexibility diversity constraints")
         
         # Get minimum utilization percentages from config or use defaults
-        min_storage_utilization = self.config.get('constraints', {}).get('min_storage_utilization', 0.15)  # 15% minimum storage contribution
-        min_dr_utilization = self.config.get('constraints', {}).get('min_dr_utilization', 0.10)  # 10% minimum demand response contribution
-        min_exchange_utilization = self.config.get('constraints', {}).get('min_exchange_utilization', 0.15)  # 15% minimum exchange contribution
+        constraints = self.config.get('constraints') or {}
+        min_storage_utilization = constraints.get('min_storage_utilization', 0.15)  # 15% minimum storage contribution
+        min_dr_utilization = constraints.get('min_dr_utilization', 0.10)  # 10% minimum demand response contribution
+        min_exchange_utilization = constraints.get('min_exchange_utilization', 0.15)  # 15% minimum exchange contribution
         
         # 1. Calculate total flexibility potential for each region
         for region in self.regions:
@@ -1534,14 +1199,12 @@ class RegionalFlexOptimizer:
         """
         logger.info("Running optimization model")
         
-        # Apply LP relaxation by forcing binary variables to be continuous if enabled
         if self.use_simplified_model and self.simplification_options.get("lp_relaxation", False):
             logger.info("Converting MILP to LP by relaxing integer constraints")
             for var in self.binary_vars:
-                # Change binary variables to continuous with bounds [0,1]
-                var.cat = pl.LpContinuous
+                var.cat = pulp.LpContinuous    # ← plus de référence à pl
                 var.lowBound = 0
-                var.upBound = 1
+                var.upBound  = 1
         
         # Save model to file if debugging is enabled
         if logger.level <= logging.DEBUG:
@@ -1601,7 +1264,7 @@ class RegionalFlexOptimizer:
             
         except Exception as e:
             logger.error(f"Error solving model: {e}")
-            return pl.LpStatusNotSolved, time.time() - start_time
+            return pulp.LpStatusNotSolved, time.time() - start_time
 
     def run_model(self, time_limit=None, threads=None):
         """Run the optimization model - wrapper for the solve method.

@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """Run the Regional Flexibility Optimizer and produce basic visualisations.
 
@@ -39,9 +38,19 @@ def load_regional_timeseries(regions, data_dir):
     """
     data = {}
     for r in regions:
-        path = os.path.join(data_dir, f"{r}.csv")
+        filename = f"{r}.csv"
+        path = os.path.join(data_dir, filename)
         if not os.path.exists(path):
-            raise FileNotFoundError(f"Timeseries file not found: {path}")
+            # Fallback: try apostrophe variant for Provence
+            if "dAzur" in r:
+                alt_filename = filename.replace("dAzur.csv", "d'Azur.csv")
+                alt_path = os.path.join(data_dir, alt_filename)
+                if os.path.exists(alt_path):
+                    path = alt_path
+                else:
+                    raise FileNotFoundError(f"Timeseries file not found: {path}")
+            else:
+                raise FileNotFoundError(f"Timeseries file not found: {path}")
         df = pd.read_csv(path, parse_dates=[0], index_col=0)
         data[r] = df
     return data
@@ -64,6 +73,8 @@ def plot_dispatch_stack(results, region, outdir):
     if not ts:
         return
     df = pd.DataFrame(ts)
+    # force any tiny negatives to zero so stacked=True works
+    df = df.clip(lower=0)
     ax = df.plot(kind='area', stacked=True)
     ax.set_xlabel('timestep')
     ax.set_ylabel('MW')
@@ -95,7 +106,7 @@ def main():
         start, end = args.start, args.end
 
     start_dt = pd.Timestamp(start)
-    end_dt = pd.Timestamp(end) + pd.Timedelta(minutes=30)  # inclusive end
+    end_dt = pd.Timestamp(end) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)  # inclusive end
 
     # --- load config & data -------------------------------------------------
     with open(args.config) as f:

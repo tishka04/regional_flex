@@ -8,13 +8,13 @@ regions:
   - Auvergne_Rhone_Alpes
   - Nouvelle_Aquitaine
   - Occitanie
-  - Provence_Alpes_Cote_d'Azur
+  - Provence_Alpes_Cote_dAzur
 
 region_name_map:
   "Auvergne-Rhone-Alpes": "Auvergne_Rhone_Alpes"
   "Nouvelle-Aquitaine":   "Nouvelle_Aquitaine"
   "Occitanie":             "Occitanie"
-  "Provence-Alpes-Cote-dAzur": "Provence_Alpes_Cote_d'Azur"
+  "Provence-Alpes-Cote-dAzur": "Provence_Alpes_Cote_dAzur"
 
 tech_name_map:
   hydraulique:    "hydro"
@@ -33,10 +33,9 @@ costs:
   thermal_coal:          90.0
   biofuel:               70.0
   demand_response:      120.0
-  exchange:              25.0
-  transport_exchange:    30.0
-  storage_charge:        4.0
-  storage_discharge:     3.0
+  exchange:              35.0
+  storage_charge:        35.0
+  storage_discharge:     50.0
   slack_penalty:    50000.0
   curtailment_penalty: 10000.0
 
@@ -45,13 +44,13 @@ costs:
 # ———————————————————————————————————————————————
 storage_params:
   STEP:
-    charge_efficiency:    0.95      # fraction
-    discharge_efficiency: 0.95
-    max_power_ratio:      1.0       # rapport charge/puissance
+    charge_efficiency:    0.90      # fraction
+    discharge_efficiency: 0.85
+    max_power_ratio:      0.80       # rapport charge/puissance
   batteries:
-    charge_efficiency:    0.95
-    discharge_efficiency: 0.95
-    max_power_ratio:      1.0
+    charge_efficiency:    0.90
+    discharge_efficiency: 0.85
+    max_power_ratio:      0.80
 
 # Valeurs initiales SOC (optionnel, sinon code met 50 %)
 storage_initial:
@@ -74,19 +73,19 @@ storage_initial:
 demand_response:
   Auvergne_Rhone_Alpes:
     max_shift:         0.10      # 10% de la demande instantanée
-    max_total:       1000.0     # MWh sur l’horizon
+    max_total:       10000.0     # MWh sur l’horizon
     participation_rate: 1.0      # 100% des consommateurs
   Nouvelle_Aquitaine:
     max_shift:         0.10
-    max_total:        800.0
+    max_total:        8000.0
     participation_rate: 1.0
   Occitanie:
     max_shift:         0.10
-    max_total:        600.0
+    max_total:        6000.0
     participation_rate: 1.0
   Provence_Alpes_Cote_dAzur:
     max_shift:         0.10
-    max_total:        400.0
+    max_total:        4000.0
     participation_rate: 1.0
 
 # ———————————————————————————————————————————————
@@ -94,11 +93,11 @@ demand_response:
 # ———————————————————————————————————————————————
 tech_params:
   hydro:
-    ramp_rate:          0.30      # 30% / 30 min
+    ramp_rate:          0.90      # 30% / 30 min
   nuclear:
     ramp_rate:          0.05
   thermal_gas:
-    ramp_rate:          0.50
+    ramp_rate:          0.80
   thermal_coal:
     ramp_rate:          0.30
   biofuel:
@@ -109,9 +108,24 @@ tech_params:
 # ———————————————————————————————————————————————
 constraints:
   # Capacités maximales
-  max_exchange:           20000.0  # MW
-  exchange_capacity:      20000.0  # MW unidirectionnel
-  transport_capacity:     20000.0  # MW
+# Capacités de transport régionales (MW)
+regional_transport_capacities:
+  Auvergne_Rhone_Alpes:
+    Nouvelle_Aquitaine: 500
+    Occitanie: 2750
+    Provence_Alpes_Cote_dAzur: 5000
+  Nouvelle_Aquitaine:
+    Auvergne_Rhone_Alpes: 500
+    Occitanie: 1750
+    Provence_Alpes_Cote_dAzur: 0  # Pas de connexion directe
+  Occitanie:
+    Auvergne_Rhone_Alpes: 2750
+    Nouvelle_Aquitaine: 1750
+    Provence_Alpes_Cote_dAzur: 1500
+  Provence_Alpes_Cote_dAzur:
+    Auvergne_Rhone_Alpes: 5000
+    Occitanie: 1500
+    Nouvelle_Aquitaine: 0  # Pas de connexion directe
   max_storage:             5000.0  # MW
   max_slack:              10000.0  # MW
 
@@ -121,11 +135,13 @@ constraints:
   min_exchange_utilization:  0.0   # 15% ?
 
   # Cyclical storage
-  use_cyclical_storage:      true
+  use_cyclical_storage:      false
 
-  # Grille (stabilité)
-  grid_stability:
-    max_total_exchange_per_region: 3000.0  # MW
+
+# ———————————————————————————————————————————————
+# Contraintes minimales de fonctionnement
+# ———————————————————————————————————————————————
+min_nuclear_capacity_fraction: 0.15
 
 # ———————————————————————————————————————————————
 # Capacités régionales (dispatch)
@@ -210,24 +226,21 @@ regional_costs:
     thermal_coal: 85.0
     biofuel:      70.0
 
-regional_constraints:
+
+loss_factor_per_km: 0.00025        # 0.025 % de pertes par km (à ajuster)
+
+regional_distances:               # km à vol d’oiseau ou longueur de ligne
   Auvergne_Rhone_Alpes:
-    transport_cost_multiplier: 1.0
-    exchange_cost_multiplier:  1.0
-    dr_cost_multiplier:        1.0
-    slack_penalty_multiplier:  1.0
+    Nouvelle_Aquitaine: 520
+    Occitanie:          240
+    Provence_Alpes_Cote_dAzur: 260
   Nouvelle_Aquitaine:
-    transport_cost_multiplier: 1.0
-    exchange_cost_multiplier:  1.0
-    dr_cost_multiplier:        1.0
-    slack_penalty_multiplier:  1.0
+    Auvergne_Rhone_Alpes: 520
+    Occitanie:          310
   Occitanie:
-    transport_cost_multiplier: 1.0
-    exchange_cost_multiplier:  1.0
-    dr_cost_multiplier:        1.0
-    slack_penalty_multiplier:  1.0
+    Auvergne_Rhone_Alpes: 240
+    Nouvelle_Aquitaine: 310
+    Provence_Alpes_Cote_dAzur: 190
   Provence_Alpes_Cote_dAzur:
-    transport_cost_multiplier: 1.0
-    exchange_cost_multiplier:  1.0
-    dr_cost_multiplier:        1.0
-    slack_penalty_multiplier:  1.0
+    Auvergne_Rhone_Alpes: 260
+    Occitanie:          190
