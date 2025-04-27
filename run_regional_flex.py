@@ -19,6 +19,7 @@ import yaml
 from datetime import datetime, timedelta
 import pandas as pd
 import matplotlib.pyplot as plt
+import pulp
 
 # ----- presets for the paper ------------------------------------------------
 PRESETS = {
@@ -127,10 +128,9 @@ def main():
     opt.build_model(data_int, time_periods=time_periods)
     opt.model.writeLP("debug.lp")           # ❶ écrit le LP lisible par CBC
 
-    from pulp import PULP_CBC_CMD           # ❷ paramètre CBC avec l’option IIS
-    cbc_iis = PULP_CBC_CMD(msg=True,
-                       options=["findiis", "logLevel", "2"])
-    status, _ = opt.solve(solver=cbc_iis, threads=args.threads)
+
+    highs_solver = pulp.HiGHS_CMD(msg=True)   # Pas besoin de préciser threads
+    status, _ = opt.solve(solver=highs_solver)
 
     if status != 1:
         print("⚠️  MILP non optimal (status =", status, ") – pas de prix nodaux .")
@@ -141,11 +141,19 @@ def main():
                     .sort_index()
                     .rename_axis('timestep'))
 
+        df_price.to_csv("results/nodal_prices_full_year.csv")
+
         # tableau de demande déjà chargé plus haut
         dt_h = 0.5     # pas demi-horaire
-        if 'demand' in data_int:
-            expense = (df_price * data_int['demand'] * dt_h).sum().sum()
-            print(f"Dépense spot simulée : {expense/1e9:.2f} G€")
+        # assemble demand per region aligned with timesteps
+        demand_df = pd.DataFrame(
+            {r: data_int[r]['demand'].to_numpy() for r in regions},
+            index=df_price.index
+        )
+        print("Price head:\n", df_price.head())
+        print("Demand head:\n", demand_df.head())
+        expense = (df_price * demand_df * dt_h).sum().sum()
+        print(f"Dépense spot simulée : {expense:.2f}€")
 
     # --- save results -------------------------------------------------------
     results = opt.get_results()
@@ -155,10 +163,14 @@ def main():
     # --- basic plots --------------------------------------------------------
     outdir = 'plots'
     os.makedirs(outdir, exist_ok=True)
-    for r in regions:
-        plot_dispatch_stack(results, r, outdir)
+    # --- basic plots --------------------------------------------------------
+    if 'dispatch_techs' in results:
+        for r in regions:
+            plot_dispatch_stack(results, r, outdir)
+        print('Figures saved to ./plots')
+    else:
+        print('No plots generated: optimization did not solve successfully and dispatch_techs is missing from results.')
 
-    print('Figures saved to ./plots')
 
 if __name__ == '__main__':
     main()

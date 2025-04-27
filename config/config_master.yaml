@@ -56,17 +56,17 @@ storage_params:
 # Valeurs initiales SOC (optionnel, sinon code met 50 %)
 storage_initial:
   Auvergne_Rhone_Alpes:
-    STEP:      30550.0   # MWh = 50% de 61100
-    batteries: 100.0    # MWh = 50% de 200
+    STEP:      0.0   # MWh = 50% de 61100
+    batteries: 0.0    # MWh = 50% de 200
   Nouvelle_Aquitaine:
     STEP:        0.0
-    batteries:  700.0   # MWh = 50% de 1400
+    batteries:  0.0   # MWh = 50% de 1400
   Occitanie:
-    STEP:    19400.0    # MWh = 50% de 38800
-    batteries: 500.0
+    STEP:    0.0    # MWh = 50% de 38800
+    batteries: 0.0
   Provence_Alpes_Cote_dAzur:
     STEP:      0.0
-    batteries: 500.0
+    batteries: 0.0
 
 # ———————————————————————————————————————————————
 # Demand response (per region)

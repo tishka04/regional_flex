@@ -29,23 +29,51 @@ logger = logging.getLogger(__name__)
 
 class RegionalFlexOptimizer:
     """Regional Flexibility Optimizer for multiple regions with various technologies.
-    
-    This optimizer builds upon the RegionalFlexOptimizerTech class but incorporates additional
-    parameters from config_master.yaml for more comprehensive optimization.
-    
-    Attributes:
-        config (dict): Configuration parameters loaded from the YAML file
-        model (LpProblem): PuLP optimization model
-        regions (list): List of regions to optimize
-        variables (dict): Dictionary of optimization variables
-        tech_capacities (dict): Dictionary of technology capacities by region
-        storage_techs (list): List of storage technologies
-        dispatch_techs (list): List of dispatchable technologies
-        renewable_techs (list): List of renewable technologies
-        region_name_map (dict): Mapping of region names
-        tech_name_map (dict): Mapping of technology names
+    ...
     """
-    
+
+    def diagnose_infeasibility(self, max_constraints=10, max_vars=10):
+        """
+        Print the most violated constraints and variable bounds if the model is infeasible.
+        Args:
+            max_constraints (int): Number of most violated constraints to print.
+            max_vars (int): Number of variables with most out-of-bounds values to print.
+        """
+        print("\n--- Constraint Violation Diagnostics ---")
+        violations = []
+        for cname, c in self.model.constraints.items():
+            val = c.value()
+            if val is None:
+                continue
+            lb = getattr(c, 'lowBound', None)
+            ub = getattr(c, 'upBound', None)
+            sense = c.sense if hasattr(c, 'sense') else None
+            # For equality constraints, check |val| > tol
+            if sense == 0 and abs(val) > 1e-4:
+                violations.append((cname, val))
+            elif sense == -1 and val > 1e-4:
+                violations.append((cname, val))
+            elif sense == 1 and val < -1e-4:
+                violations.append((cname, val))
+        violations.sort(key=lambda x: abs(x[1]), reverse=True)
+        for cname, val in violations[:max_constraints]:
+            print(f"Constraint {cname}: violation {val}")
+        if not violations:
+            print("No large constraint violations detected.")
+
+        print("\n--- Variable Bound Diagnostics ---")
+        var_viol = []
+        for v in self.model.variables():
+            if v.lowBound is not None and v.varValue is not None and v.varValue < v.lowBound - 1e-4:
+                var_viol.append((v.name, v.varValue, v.lowBound, 'LB'))
+            if v.upBound is not None and v.varValue is not None and v.varValue > v.upBound + 1e-4:
+                var_viol.append((v.name, v.varValue, v.upBound, 'UB'))
+        for name, val, bnd, typ in var_viol[:max_vars]:
+            print(f"Variable {name}: value {val} violates {typ} {bnd}")
+        if not var_viol:
+            print("No variable bound violations detected.")
+        print("--- End Diagnostics ---\n")
+
     def __init__(self, config_path: str):
         """Initialize the regional flexibility optimizer.
         
@@ -66,7 +94,7 @@ class RegionalFlexOptimizer:
             "aggregate_storage": False,
             "relaxed_exchange": False,
             "skip_cyclical_storage": False,
-            "lp_relaxation": False  # Relax binary/integer variables to continuous (MILP → LP)
+            "lp_relaxation": True  # Relax binary/integer variables to continuous (MILP → LP)
         }
         
         # Load master configuration if available
@@ -221,7 +249,7 @@ class RegionalFlexOptimizer:
         # ---- option LP-relax --------------------------------------------
         using_lp_relax = (
             self.use_simplified_model
-            and self.simplification_options.get("lp_relaxation", False)
+            and self.simplification_options.get("lp_relaxation", True)
         )
 
         # ---- horizon temporel -------------------------------------------
@@ -1205,7 +1233,9 @@ class RegionalFlexOptimizer:
         """
         logger.info("Running optimization model")
         
-        if self.use_simplified_model and self.simplification_options.get("lp_relaxation", False):
+        # --- If using a commercial solver (e.g. GUROBI, CPLEX), you can get an IIS (Irreducible Infeasible Subset)
+        # by passing solver-specific options. See the solver documentation for details.
+        if self.use_simplified_model and self.simplification_options.get("lp_relaxation", True):
             logger.info("Converting MILP to LP by relaxing integer constraints")
             for var in self.binary_vars:
                 var.cat = LpContinuous    # ← plus de référence à pl
@@ -1225,8 +1255,10 @@ class RegionalFlexOptimizer:
         if threads is not None:
             solver_options.append(("threads", threads))
         
-        # Choose solver
-        if solver == "GUROBI_CMD":
+        # Choose solver: if a solver instance is provided, use it directly
+        if solver is not None and not isinstance(solver, str):
+            solver_to_use = solver
+        elif solver == "GUROBI_CMD":
             # Check if GUROBI_CMD is available in PuLP
             try:
                 from pulp import GUROBI_CMD
@@ -1245,9 +1277,9 @@ class RegionalFlexOptimizer:
                 solver_options_str = [f"{name}={value}" for name, value in solver_options]
                 solver_to_use = PULP_CBC_CMD(options=solver_options_str)
         else:
-            # Default to CBC with options
-            solver_options_str = [f"{name}={value}" for name, value in solver_options]
-            solver_to_use = PULP_CBC_CMD(options=solver_options_str)
+            # Default to HiGHS with options
+            from pulp import HiGHS_CMD
+            solver_to_use = HiGHS_CMD(msg=True)
         
         # Record start time
         start_time = time.time()
@@ -1265,13 +1297,85 @@ class RegionalFlexOptimizer:
             if status == LpStatusOptimal:
                 objective_value = value(self.model.objective)
                 logger.info(f"Objective value: {objective_value}")
-            
+            else:
+                logger.error(f"Model infeasible or not solved optimally. Running diagnostics...")
+                self.diagnose_infeasibility(max_constraints=10, max_vars=10)
+        
+        # --- If using a commercial solver (e.g. GUROBI, CPLEX), you can get an IIS (Irreducible Infeasible Subset)
+        # by passing solver-specific options. See the solver documentation for details.
+        
             return status, solve_time
-            
+        
         except Exception as e:
             logger.error(f"Error solving model: {e}")
             return LpStatusNotSolved, time.time() - start_time
+    
+    def diagnose_infeasibility(self, max_constraints=10, max_vars=10):
+        """Print the most violated constraints and variables if the model is infeasible."""
+        logger.info("Running infeasibility diagnostics")
+        
+        # Attempt solver-provided infeasibility info; fallback if unavailable
+        try:
+            infeasibility_info = self.model.infeasibility_info()
+            logger.info("Most violated constraints:")
+            for constraint, info in infeasibility_info['constraints'].items():
+                logger.info(f"{constraint}: {info['value']} (should be {info['sense']} {info['rhs']})")
+                max_constraints -= 1
+                if max_constraints == 0:
+                    break
+            logger.info("Most violated variable bounds:")
+            for var, info in infeasibility_info['variables'].items():
+                logger.info(f"{var}: {info['value']} outside [{info['lower']}, {info['upper']}]")
+                max_vars -= 1
+                if max_vars == 0:
+                    break
 
+
+        except AttributeError:
+            # Fallback manual diagnostics: robust and skip errors
+            print("\n--- Constraint Violation Diagnostics ---")
+            violations = []
+            tol = 1e-4
+            for cname, c in self.model.constraints.items():
+                try:
+                    val = c.value()
+                    if val is None:
+                        continue
+                    sense = getattr(c, 'sense', None)
+                    if sense == 0 and abs(val) > tol:
+                        violations.append((cname, val))
+                    elif sense == -1 and val > tol:
+                        violations.append((cname, val))
+                    elif sense == 1 and val < -tol:
+                        violations.append((cname, val))
+                except Exception:
+                    continue
+            violations.sort(key=lambda x: abs(x[1]), reverse=True)
+            if violations:
+                for cname, val in violations[:max_constraints]:
+                    print(f"Constraint {cname}: violation {val}")
+            else:
+                print("No large constraint violations detected.")
+
+            print("\n--- Variable Bound Diagnostics ---")
+            var_viol = []
+            for v in self.model.variables():
+                try:
+                    if v.varValue is None:
+                        continue
+                    if v.lowBound is not None and v.varValue < v.lowBound - tol:
+                        var_viol.append((v.name, v.varValue, v.lowBound, 'LB'))
+                    if v.upBound is not None and v.varValue > v.upBound + tol:
+                        var_viol.append((v.name, v.varValue, v.upBound, 'UB'))
+                except Exception:
+                    continue
+            if var_viol:
+                for name, val, bnd, typ in var_viol[:max_vars]:
+                    print(f"Variable {name}: value {val} violates {typ} bound {bnd}")
+            else:
+                print("No variable bound violations detected.")
+            print("--- End Diagnostics ---\n")
+    
     def run_model(self, time_limit=None, threads=None):
         """Run the optimization model - wrapper for the solve method.
         
@@ -1298,13 +1402,19 @@ class RegionalFlexOptimizer:
 
         # --- 1. construire un modèle LP « fixé » ----------------------------
         lp = self.model.copy()
-        for v in self.binary_vars:        # on fige les binaires
-            w = lp.variablesDict()[v.name]
-            w.lowBound = w.upBound = v.value()
-            w.cat = 'Continuous'
+        # Map original binary var names to their optimal values
+        bin_vals = {v.name: v.varValue for v in self.binary_vars if v.varValue is not None}
+        # Freeze binaries in the copied model
+        for w in lp.variables():
+            if w.name in bin_vals:
+                val = bin_vals[w.name]
+                w.lowBound = val
+                w.upBound = val
+                w.cat = 'Continuous'
 
         # --- 2. résoudre la relaxation linéaire -----------------------------
-        lp.solve(PULP_CBC_CMD(msg=False))
+        from pulp import PULP_CBC_CMD   
+        lp.solve(PULP_CBC_CMD(msg=True, mip=False))
         if lp.status != 1:
             raise RuntimeError("LP fixe non optimale ; duals indisponibles.")
 
@@ -1324,7 +1434,7 @@ class RegionalFlexOptimizer:
             except ValueError:
                 continue                              # au cas où
 
-            prices.setdefault(region, {})[t] = c.pi   # dual value
+            prices.setdefault(region, {})[t] = abs(c.pi)   # dual value
 
         # Séries pandas pour plus de confort
         for r in prices:
@@ -1343,6 +1453,15 @@ class RegionalFlexOptimizer:
         # Check if model was solved
         if self.model.status != LpStatusOptimal:
             logger.warning(f"Model not optimally solved (status: {LpStatus[self.model.status]}), results may be suboptimal")
+            return {
+                'status': LpStatus[self.model.status],
+                'objective_value': None,
+                'message': 'Model not solved optimally. Variable values are undefined.',
+                'variables': {},
+                'regional_summary': {},
+                'exchanges': {},
+                'slack_usage': {},
+            }
         
         # Initialize results dictionary
         results = {
@@ -1472,3 +1591,16 @@ class RegionalFlexOptimizer:
 
         
         return results
+
+    def run_model(self, time_limit=None, threads=None):
+        """Run the optimization model - wrapper for the solve method.
+        
+        Args:
+{{ ... }}
+            time_limit (int, optional): Maximum solver time in seconds
+            threads (int, optional): Number of parallel threads to use for solving
+            
+        Returns:
+            Tuple[str, float]: Optimization status and solve time in seconds
+        """
+        return self.solve(time_limit=time_limit, threads=threads)
