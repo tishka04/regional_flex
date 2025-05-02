@@ -86,6 +86,8 @@ def plot_dispatch_stack(results, region, outdir):
     plt.close()
 
 def main():
+    # Add CLI flag for curtailment
+    
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', required=True, help='Path to config_master.yaml')
     parser.add_argument('--data-dir', required=True, help='Folder with regional CSV files')
@@ -94,6 +96,7 @@ def main():
     parser.add_argument('--end')
     parser.add_argument('--out', default='results.pkl', help='Pickle to store raw results')
     parser.add_argument('--threads', type=int, default=4)
+    parser.add_argument('--enable-curtailment', action='store_true', help='Enable curtailment constraints and variables in the optimizer')
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format='%(levelname)s – %(message)s')
@@ -124,7 +127,7 @@ def main():
     time_periods = list(range(nsteps))
 
     from src.model.optimizer_regional_flex import RegionalFlexOptimizer
-    opt = RegionalFlexOptimizer(args.config)
+    opt = RegionalFlexOptimizer(args.config, enable_curtailment=args.enable_curtailment)
     opt.build_model(data_int, time_periods=time_periods)
     opt.model.writeLP("debug.lp")           # ❶ écrit le LP lisible par CBC
 
@@ -135,17 +138,21 @@ def main():
     if status != 1:
         print("⚠️  MILP non optimal (status =", status, ") – pas de prix nodaux .")
     else:
+        # --- Get duals from LP relaxation (nodal prices) and save results ---
         nodal = opt.get_nodal_prices()
+        duals_dict = {region: prices.to_dict() for region, prices in nodal.items()}
+        results = opt.get_results(dual_variables=duals_dict)
+        pd.to_pickle(results, args.out)
+        print(f'Results stored to {args.out}')
+
+        # --- Save nodal prices CSV and print expense summary (optional) ---
         import pandas as pd
         df_price = (pd.DataFrame(nodal)
                     .sort_index()
                     .rename_axis('timestep'))
-
         df_price.to_csv("results/nodal_prices_full_year.csv")
 
-        # tableau de demande déjà chargé plus haut
         dt_h = 0.5     # pas demi-horaire
-        # assemble demand per region aligned with timesteps
         demand_df = pd.DataFrame(
             {r: data_int[r]['demand'].to_numpy() for r in regions},
             index=df_price.index
@@ -154,11 +161,6 @@ def main():
         print("Demand head:\n", demand_df.head())
         expense = (df_price * demand_df * dt_h).sum().sum()
         print(f"Dépense spot simulée : {expense:.2f}€")
-
-    # --- save results -------------------------------------------------------
-    results = opt.get_results()
-    pd.to_pickle(results, args.out)
-    print(f'Results stored to {args.out}')
 
     # --- basic plots --------------------------------------------------------
     outdir = 'plots'

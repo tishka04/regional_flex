@@ -74,7 +74,7 @@ class RegionalFlexOptimizer:
             print("No variable bound violations detected.")
         print("--- End Diagnostics ---\n")
 
-    def __init__(self, config_path: str):
+    def __init__(self, config_path: str, enable_curtailment: bool = False):
         """Initialize the regional flexibility optimizer.
         
         Args:
@@ -110,6 +110,9 @@ class RegionalFlexOptimizer:
                         # Deep merge dictionaries
                         self.config[key].update(value)
         
+        # Store curtailment flag
+        self.enable_curtailment = enable_curtailment
+
         # Initialize model
         self.model = LpProblem("RegionalFlexModel", LpMinimize)
         self.variables = {}
@@ -287,8 +290,9 @@ class RegionalFlexOptimizer:
                 self.variables[k] = {t: LpVariable(f"{k}_{t}", lowBound=0) for t in T}
 
             # e) curtailment
-            k = f"curtail_{region}"
-            self.variables[k] = {t: LpVariable(f"{k}_{t}", lowBound=0) for t in T}
+            if getattr(self, 'enable_curtailment', False):
+                k = f"curtail_{region}"
+                self.variables[k] = {t: LpVariable(f"{k}_{t}", lowBound=0) for t in T}
 
             # f) flag DR
             k = f"dr_active_{region}"
@@ -447,9 +451,10 @@ class RegionalFlexOptimizer:
                 if (f"slack_neg_{region}" in self.variables and
                         t in self.variables[f"slack_neg_{region}"]):
                     objective += self.variables[f"slack_neg_{region}"][t] * slack_pen
-                if (f"curtail_{region}" in self.variables and
-                        t in self.variables[f"curtail_{region}"]):
-                    objective += self.variables[f"curtail_{region}"][t] * curt_pen
+                if getattr(self, 'enable_curtailment', False):
+                    if (f"curtail_{region}" in self.variables and
+                            t in self.variables[f"curtail_{region}"]):
+                        objective += self.variables[f"curtail_{region}"][t] * curt_pen
 
         # -------- affectation à PuLP -------------------------------------------
         self.model += objective
@@ -549,7 +554,10 @@ class RegionalFlexOptimizer:
                     for st in self.storage_techs
                 ]
                 dr_term      = self.variables[f"demand_response_{region}"][t]
-                curtail_term = self.variables[f"curtail_{region}"][t]
+                if getattr(self, 'enable_curtailment', False):
+                    curtail_term = self.variables[f"curtail_{region}"][t]
+                else:
+                    curtail_term = 0
                 slack_pos    = self.variables[f"slack_pos_{region}"][t]
                 slack_neg    = self.variables[f"slack_neg_{region}"][t]
 
@@ -1442,8 +1450,11 @@ class RegionalFlexOptimizer:
 
         return prices
 
-    def get_results(self) -> Dict:
+    def get_results(self, dual_variables=None) -> Dict:
         """Extract results from the optimized model.
+        
+        Args:
+            dual_variables (dict, optional): Dual variables (nodal prices) from LP relaxation, as {region: {timestep: price}}. If not provided, duals are not included.
         
         Returns:
             Dict: Dictionary with optimization results including variable values and metadata
@@ -1482,6 +1493,12 @@ class RegionalFlexOptimizer:
             for t, var in var_dict.items():
                 results['variables'][var_name][t] = var.value()
         
+        # Add dual variables (nodal prices from LP relaxation)
+        if dual_variables is not None:
+            results['dual_variables'] = dual_variables
+        else:
+            results['dual_variables'] = None
+
         # Add metadata about the optimization
         results['metadata'] = {
             'model_name': self.model.name,

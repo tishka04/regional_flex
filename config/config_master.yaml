@@ -108,140 +108,139 @@ tech_params:
 # Contraintes globales
 # ———————————————————————————————————————————————
 constraints:
-  # Capacités maximales
 # Capacités de transport régionales (MW)
-regional_transport_capacities:
-  Auvergne_Rhone_Alpes:
-    Nouvelle_Aquitaine: 500
-    Occitanie: 2750
-    Provence_Alpes_Cote_dAzur: 5000
-  Nouvelle_Aquitaine:
-    Auvergne_Rhone_Alpes: 500
-    Occitanie: 1750
-    Provence_Alpes_Cote_dAzur: 0  # Pas de connexion directe
-  Occitanie:
-    Auvergne_Rhone_Alpes: 2750
-    Nouvelle_Aquitaine: 1750
-    Provence_Alpes_Cote_dAzur: 1500
-  Provence_Alpes_Cote_dAzur:
-    Auvergne_Rhone_Alpes: 5000
-    Occitanie: 1500
-    Nouvelle_Aquitaine: 0  # Pas de connexion directe
-  max_storage:             6500.0  # MW
-  max_slack:              10000.0  # MW
+  regional_transport_capacities:
+    Auvergne_Rhone_Alpes:
+      Nouvelle_Aquitaine: 500
+      Occitanie: 2750
+      Provence_Alpes_Cote_dAzur: 5000
+    Nouvelle_Aquitaine:
+      Auvergne_Rhone_Alpes: 500
+      Occitanie: 1750
+      Provence_Alpes_Cote_dAzur: 0  # Pas de connexion directe
+    Occitanie:
+      Auvergne_Rhone_Alpes: 2750
+      Nouvelle_Aquitaine: 1750
+      Provence_Alpes_Cote_dAzur: 1500
+    Provence_Alpes_Cote_dAzur:
+      Auvergne_Rhone_Alpes: 5000
+      Occitanie: 1500
+      Nouvelle_Aquitaine: 0  # Pas de connexion directe
+    max_storage:             6500.0  # MW
+    max_slack:              10000.0  # MW
 
-  # Diversité de flexibilité (min % / demande)
-  min_storage_utilization:   0.0   # 15% ?
-  min_dr_utilization:        0.0   # 10% ?
-  min_exchange_utilization:  0.0   # 15% ?
+    # Diversité de flexibilité (min % / demande)
+    min_storage_utilization:   0.0   # 15% ?
+    min_dr_utilization:        0.0   # 10% ?
+    min_exchange_utilization:  0.0   # 15% ?
 
-  # Cyclical storage
-  use_cyclical_storage:      false
-
-
-# ———————————————————————————————————————————————
-# Contraintes minimales de fonctionnement
-# ———————————————————————————————————————————————
-min_nuclear_capacity_fraction: 0.15
-
-# ———————————————————————————————————————————————
-# Capacités régionales (dispatch)
-# ———————————————————————————————————————————————
-regional_capacities:
-  Auvergne_Rhone_Alpes:
-    hydro:        11403
-    nuclear:      13630
-    thermal_gas:    700
-    thermal_coal:    300
-    biofuel:        190
-  Nouvelle_Aquitaine:
-    hydro:         2300
-    nuclear:       6500
-    thermal_gas:    100
-    thermal_coal:      0
-    biofuel:        250
-  Occitanie:
-    hydro:         5296
-    nuclear:       2734
-    thermal_gas:    500
-    thermal_coal:    100
-    biofuel:        171
-  Provence_Alpes_Cote_dAzur:
-    hydro:         3348
-    nuclear:          0
-    thermal_gas:   2000
-    thermal_coal:    760
-    biofuel:        210
-
-# ———————————————————————————————————————————————
-# Capacités régionales de stockage
-# ———————————————————————————————————————————————
-regional_storage:
-  Auvergne_Rhone_Alpes:
-    batteries_puissance_MW: 100.0
-    batteries_stockage_MWh: 200.0
-    STEP_puissance_MW:      3610.0
-    STEP_stockage_MWh:     61100.0
-  Nouvelle_Aquitaine:
-    batteries_puissance_MW: 700.0
-    batteries_stockage_MWh: 1400.0
-    STEP_puissance_MW:       0.0
-    STEP_stockage_MWh:       0.0
-  Occitanie:
-    batteries_puissance_MW: 500.0
-    batteries_stockage_MWh: 1000.0
-    STEP_puissance_MW:      920.0
-    STEP_stockage_MWh:     38800.0
-  Provence_Alpes_Cote_dAzur:
-    batteries_puissance_MW: 500.0
-    batteries_stockage_MWh: 1000.0
-    STEP_puissance_MW:       0.0
-    STEP_stockage_MWh:       0.0
-
-# ———————————————————————————————————————————————
-# Coûts et multiplicateurs régionaux
-# ———————————————————————————————————————————————
-regional_costs:
-  Auvergne_Rhone_Alpes:
-    hydro:        20.0
-    nuclear:      30.0
-    thermal_gas:  75.0
-    thermal_coal: 85.0
-    biofuel:      70.0
-  Nouvelle_Aquitaine:
-    hydro:        20.0
-    nuclear:      30.0
-    thermal_gas:  75.0
-    thermal_coal: 85.0
-    biofuel:      70.0
-  Occitanie:
-    hydro:        25.0
-    nuclear:      30.0
-    thermal_gas:  75.0
-    thermal_coal: 85.0
-    biofuel:      70.0
-  Provence_Alpes_Cote_dAzur:
-    hydro:        20.0
-    nuclear:      30.0
-    thermal_gas:  75.0
-    thermal_coal: 85.0
-    biofuel:      70.0
+    # Cyclical storage
+    use_cyclical_storage:      false
 
 
-loss_factor_per_km: 0.00025        # 0.025 % de pertes par km (à ajuster)
+  # ———————————————————————————————————————————————
+  # Contraintes minimales de fonctionnement
+  # ———————————————————————————————————————————————
+  min_nuclear_capacity_fraction: 0.15
 
-regional_distances:               # km à vol d’oiseau ou longueur de ligne
-  Auvergne_Rhone_Alpes:
-    Nouvelle_Aquitaine: 520
-    Occitanie:          240
-    Provence_Alpes_Cote_dAzur: 260
-  Nouvelle_Aquitaine:
-    Auvergne_Rhone_Alpes: 520
-    Occitanie:          310
-  Occitanie:
-    Auvergne_Rhone_Alpes: 240
-    Nouvelle_Aquitaine: 310
-    Provence_Alpes_Cote_dAzur: 190
-  Provence_Alpes_Cote_dAzur:
-    Auvergne_Rhone_Alpes: 260
-    Occitanie:          190
+  # ———————————————————————————————————————————————
+  # Capacités régionales (dispatch)
+  # ———————————————————————————————————————————————
+  regional_capacities:
+    Auvergne_Rhone_Alpes:
+      hydro:        11403
+      nuclear:      13630
+      thermal_gas:    700
+      thermal_coal:    300
+      biofuel:        190
+    Nouvelle_Aquitaine:
+      hydro:         2300
+      nuclear:       6500
+      thermal_gas:    100
+      thermal_coal:      0
+      biofuel:        250
+    Occitanie:
+      hydro:         5296
+      nuclear:       2734
+      thermal_gas:    500
+      thermal_coal:    100
+      biofuel:        171
+    Provence_Alpes_Cote_dAzur:
+      hydro:         3348
+      nuclear:          0
+      thermal_gas:   2000
+      thermal_coal:    760
+      biofuel:        210
+
+  # ———————————————————————————————————————————————
+  # Capacités régionales de stockage
+  # ———————————————————————————————————————————————
+  regional_storage:
+    Auvergne_Rhone_Alpes:
+      batteries_puissance_MW: 100.0
+      batteries_stockage_MWh: 200.0
+      STEP_puissance_MW:      3610.0
+      STEP_stockage_MWh:     61100.0
+    Nouvelle_Aquitaine:
+      batteries_puissance_MW: 700.0
+      batteries_stockage_MWh: 1400.0
+      STEP_puissance_MW:       0.0
+      STEP_stockage_MWh:       0.0
+    Occitanie:
+      batteries_puissance_MW: 500.0
+      batteries_stockage_MWh: 1000.0
+      STEP_puissance_MW:      920.0
+      STEP_stockage_MWh:     38800.0
+    Provence_Alpes_Cote_dAzur:
+      batteries_puissance_MW: 500.0
+      batteries_stockage_MWh: 1000.0
+      STEP_puissance_MW:       0.0
+      STEP_stockage_MWh:       0.0
+
+  # ———————————————————————————————————————————————
+  # Coûts et multiplicateurs régionaux
+  # ———————————————————————————————————————————————
+  regional_costs:
+    Auvergne_Rhone_Alpes:
+      hydro:        20.0
+      nuclear:      30.0
+      thermal_gas:  75.0
+      thermal_coal: 85.0
+      biofuel:      70.0
+    Nouvelle_Aquitaine:
+      hydro:        20.0
+      nuclear:      30.0
+      thermal_gas:  75.0
+      thermal_coal: 85.0
+      biofuel:      70.0
+    Occitanie:
+      hydro:        25.0
+      nuclear:      30.0
+      thermal_gas:  75.0
+      thermal_coal: 85.0
+      biofuel:      70.0
+    Provence_Alpes_Cote_dAzur:
+      hydro:        20.0
+      nuclear:      30.0
+      thermal_gas:  75.0
+      thermal_coal: 85.0
+      biofuel:      70.0
+
+
+  loss_factor_per_km: 0.00025        # 0.025 % de pertes par km (à ajuster)
+
+  regional_distances:               # km à vol d’oiseau ou longueur de ligne
+    Auvergne_Rhone_Alpes:
+      Nouvelle_Aquitaine: 520
+      Occitanie:          240
+      Provence_Alpes_Cote_dAzur: 260
+    Nouvelle_Aquitaine:
+      Auvergne_Rhone_Alpes: 520
+      Occitanie:          310
+    Occitanie:
+      Auvergne_Rhone_Alpes: 240
+      Nouvelle_Aquitaine: 310
+      Provence_Alpes_Cote_dAzur: 190
+    Provence_Alpes_Cote_dAzur:
+      Auvergne_Rhone_Alpes: 260
+      Occitanie:          190

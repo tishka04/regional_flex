@@ -20,12 +20,25 @@ Le modèle attend un **pas de temps demi‑horaire** (48 × 365 = 17 5
 - `hydro`, `nuclear`, `thermal_gas`, `thermal_coal`, `biofuel`, … (facultatif si déjà déduits)
 
 ## 3 · Lancer une optimisation
-### Scénario complet 2022
+
+### Utilisation de l'option de curtailment
+Depuis la version X.X, vous pouvez activer ou désactiver la prise en compte du curtailment (écrêtement de production) via le flag CLI `--enable-curtailment`.
+
+- **Avec curtailment (par défaut: désactivé)**
+
+```bash
+python run_regional_flex.py --config config/config_master.yaml --data-dir data/processed --preset full_year --out results/full_year.pkl --enable-curtailment
+```
+
+- **Sans curtailment (par défaut)**
+
 ```bash
 python run_regional_flex.py --config config/config_master.yaml --data-dir data/processed --preset full_year --out results/full_year.pkl
 ```
 
-### Jours types prédéfinis
+> Si vous n'ajoutez pas le flag `--enable-curtailment`, le modèle n'autorisera pas l'écrêtement de production et les variables associées ne seront pas incluses dans l'optimisation.
+
+### Scénario complet 2022
 | Preset               | Période ciblée | Exemple de commande |
 |----------------------|----------------|---------------------|
 | `winter_weekday`     | 18 janvier 22  | `--preset winter_weekday` |
