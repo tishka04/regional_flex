@@ -34,6 +34,8 @@ python run_regional_flex.py --config config/config_master.yaml --data-dir data/p
 
 ```bash
 python run_regional_flex.py --config config/config_master.yaml --data-dir data/processed --preset full_year --out results/full_year.pkl
+
+python run_regional_flex.py --config config/config_master.yaml --data-dir data/processed --preset winter_weekday --out results/winter_weekday.pkl
 ```
 
 > Si vous n'ajoutez pas le flag `--enable-curtailment`, le modèle n'autorisera pas l'écrêtement de production et les variables associées ne seront pas incluses dans l'optimisation.
@@ -57,6 +59,8 @@ python run_regional_flex.py \
 ### Script CLI (PNG)
 ```bash
 python view_flex_results.py --pickle results/full_year.pkl --all-regions --out plots
+
+python view_flex_results.py --pickle results/winter_weekday.pkl --all-regions --out plots_winter
 ```
 Produit :
 - `dispatch_<region>.png` · Aire empilée des techno dispatchables

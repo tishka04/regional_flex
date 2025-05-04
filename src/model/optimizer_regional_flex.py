@@ -94,7 +94,7 @@ class RegionalFlexOptimizer:
             "aggregate_storage": False,
             "relaxed_exchange": False,
             "skip_cyclical_storage": False,
-            "lp_relaxation": True  # Relax binary/integer variables to continuous (MILP → LP)
+            "lp_relaxation": False  # Relax binary/integer variables to continuous (MILP → LP)
         }
         
         # Load master configuration if available
@@ -141,13 +141,13 @@ class RegionalFlexOptimizer:
             "nucleaire": "nuclear",
             "thermique_fossile": "thermal",
             "thermique_gaz": "thermal_gas",
-            "thermique_charbon": "thermal_coal",
+            "thermique_fioul": "thermal_fuel",
             "bioenergie": "biofuel"
         })
         
         # Define technology types
         self.dispatch_techs = [
-            "hydro", "nuclear", "thermal_gas", "thermal_coal", "biofuel"
+            "hydro", "nuclear", "thermal_gas", "thermal_fuel", "biofuel"
         ]
         
         self.storage_techs = ["STEP", "batteries"]
@@ -176,6 +176,8 @@ class RegionalFlexOptimizer:
         if 'regional_costs' in self.config:
             self.regional_costs = self.config['regional_costs']
             logger.info(f"Loaded regional costs for {len(self.regional_costs)} regions")
+        else:
+            self.regional_costs = {}
 
         # --- harmonise TOUS les noms de région (espace -> underscore) -------------
         def _norm(r):
@@ -252,7 +254,7 @@ class RegionalFlexOptimizer:
         # ---- option LP-relax --------------------------------------------
         using_lp_relax = (
             self.use_simplified_model
-            and self.simplification_options.get("lp_relaxation", True)
+            and self.simplification_options.get("lp_relaxation", False)
         )
 
         # ---- horizon temporel -------------------------------------------
@@ -273,6 +275,32 @@ class RegionalFlexOptimizer:
             for tech in self.dispatch_techs:
                 k = f"dispatch_{tech}_{region}"
                 self.variables[k] = {t: LpVariable(f"{k}_{t}", lowBound=0) for t in T}
+
+                # Unit commitment binary variable
+                uc_k = f"uc_{tech}_{region}"
+                self.variables[uc_k] = {}
+                for t in T:
+                    # Use binary unless LP relaxation is on
+                    if using_lp_relax:
+                        v = LpVariable(f"{uc_k}_{t}", lowBound=0, upBound=1, cat="Continuous")
+                    else:
+                        v = LpVariable(f"{uc_k}_{t}", cat="Binary")
+                        self.binary_vars.append(v)
+                    self.variables[uc_k][t] = v
+
+                # Startup variable for UC (binary)
+                startup_k = f"startup_{tech}_{region}"
+                self.variables[startup_k] = {}
+                for t in T:
+                    if t == T[0]:
+                        # No startup at first period (or treat as parameter if needed)
+                        v = LpVariable(f"{startup_k}_{t}", cat="Binary")
+                        self.binary_vars.append(v)
+                        self.variables[startup_k][t] = v
+                    else:
+                        v = LpVariable(f"{startup_k}_{t}", cat="Binary")
+                        self.binary_vars.append(v)
+                        self.variables[startup_k][t] = v
 
             # b) stockage
             for st in self.storage_techs:
@@ -346,7 +374,7 @@ class RegionalFlexOptimizer:
         default_costs = {
             # production
             "hydro": 30.0, "nuclear": 40.0,
-            "thermal_gas": 80.0, "thermal_coal": 90.0,
+            "thermal_gas": 80.0, "thermal_fuel": 90.0,
             "biofuel": 70.0,
 
             # stockage (€/MWh d’énergie)
@@ -369,22 +397,45 @@ class RegionalFlexOptimizer:
         objective = 0
 
         # -- 1. Dispatch ---------------------------------------------------------
+        uc_params = self.config.get('uc_params', {})
         for region in self.regions:
             for tech in self.dispatch_techs:
                 tech_cost = costs.get(tech, default_costs[tech])
+                
+                # DEBUG: Original tech cost before regional adjustment
+                if tech == "biofuel" or tech.startswith("thermal"):
+                    print(f"[DEBUG] {region} - {tech} - Initial Cost: {tech_cost}")
 
                 # éventuel coût régional spécifique
                 if region in getattr(self, "regional_costs", {}) and \
                    tech   in self.regional_costs[region]:
                     tech_cost = self.regional_costs[region][tech]
+                    
+                    # DEBUG: If a regional cost was applied
+                    if tech == "biofuel" or tech.startswith("thermal"):
+                        print(f"[DEBUG] {region} - {tech} - Regional Cost Applied: {tech_cost}")
 
                 var_key = f"dispatch_{tech}_{region}"
                 if var_key not in self.variables:
                     continue
 
+                # Fixed and startup costs from uc_params
+                region_uc = uc_params.get(region, {}).get(tech, {})
+                fixed_cost = region_uc.get('fixed_cost', 0.0)
+                startup_cost = region_uc.get('startup_cost', 0.0)
+
+                uc_key = f"uc_{tech}_{region}"
+                startup_key = f"startup_{tech}_{region}"
+
                 for t, var in self.variables[var_key].items():
                     if t in T:
                         objective += var * tech_cost
+                        # Add fixed cost for being ON
+                        if uc_key in self.variables and t in self.variables[uc_key]:
+                            objective += self.variables[uc_key][t] * fixed_cost
+                        # Add startup cost
+                        if startup_key in self.variables and t in self.variables[startup_key]:
+                            objective += self.variables[startup_key][t] * startup_cost
 
         # -- 2. Stockage ---------------------------------------------------------
         for region in self.regions:
@@ -456,6 +507,20 @@ class RegionalFlexOptimizer:
                             t in self.variables[f"curtail_{region}"]):
                         objective += self.variables[f"curtail_{region}"][t] * curt_pen
 
+        # DEBUG: Print technology merit order by cost
+        print("\n[DEBUG] Technology Merit Order (lowest to highest cost):")
+        tech_costs = {}
+        for region in self.regions:
+            for tech in self.dispatch_techs:
+                tech_cost = costs.get(tech, default_costs[tech])
+                if region in getattr(self, "regional_costs", {}) and tech in self.regional_costs[region]:
+                    tech_cost = self.regional_costs[region][tech]
+                tech_costs[(tech, region)] = tech_cost
+                
+        # Sort by cost and print
+        for (tech, region), cost in sorted(tech_costs.items(), key=lambda x: x[1]):
+            print(f"  {region} - {tech}: {cost}")
+            
         # -------- affectation à PuLP -------------------------------------------
         self.model += objective
         logger.info("Objective function added.")
@@ -780,10 +845,10 @@ class RegionalFlexOptimizer:
         constraints = self.config.get('constraints') or {}
         
         # Add capacity constraints for each region and technology
+        uc_params = self.config.get('uc_params', {})
         for region in self.regions:
             # Get regional capacities
             regional_caps = self.tech_capacities.get(region, {})
-            
             # Enforce minimum nuclear dispatch if specified in config
             min_frac = self.config.get('min_nuclear_capacity_fraction', 0.0)
             if 'nuclear' in regional_caps and min_frac > 0:
@@ -796,21 +861,75 @@ class RegionalFlexOptimizer:
                             f"min_nuclear_dispatch_{region}_{t}"
                         )
             
-            # Add dispatch capacity constraints
+            # Add dispatch capacity & unit commitment constraints
             for tech in self.dispatch_techs:
-                if f"dispatch_{tech}_{region}" in self.variables:
-                    for t in T:
+                dispatch_var = f"dispatch_{tech}_{region}"
+                uc_var = f"uc_{tech}_{region}"
+                startup_var = f"startup_{tech}_{region}"
+                if dispatch_var in self.variables and uc_var in self.variables:
+                    for idx, t in enumerate(T):
                         # Get regional capacity for this technology
                         max_capacity = regional_caps.get(tech)
-                        
                         if max_capacity is not None:
                             # Ensure dispatch does not exceed capacity
                             self.model += (
-                                self.variables[f"dispatch_{tech}_{region}"][t] <= max_capacity,
+                                self.variables[dispatch_var][t] <= max_capacity,
                                 f"max_dispatch_{tech}_{region}_{t}_{uuid.uuid4().hex[:8]}"
                             )
-            
-            # Add storage capacity constraints
+                            # Unit commitment constraint: dispatch <= max_capacity * uc
+                            self.model += (
+                                self.variables[dispatch_var][t] <= max_capacity * self.variables[uc_var][t],
+                                f"uc_dispatch_link_{tech}_{region}_{t}_{uuid.uuid4().hex[:8]}"
+                            )
+                        else:
+                            print(f"[UC DEBUG][WARNING] max_capacity is None for {region}, {tech}, t={t}")
+                        # Startup logic: startup = 1 if uc turns on from previous period
+                        if idx > 0 and uc_var in self.variables and startup_var in self.variables:
+                            t_prev = T[idx-1]
+                            self.model += (
+                                self.variables[startup_var][t] >= self.variables[uc_var][t] - self.variables[uc_var][t_prev],
+                                f"startup_logic_{tech}_{region}_{t}_{uuid.uuid4().hex[:8]}"
+                            )
+                        elif idx == 0 and startup_var in self.variables and uc_var in self.variables:
+                            # First period: startup = uc (if ON at t=0, count as startup)
+                            self.model += (
+                                self.variables[startup_var][t] >= self.variables[uc_var][t],
+                                f"startup_logic_init_{tech}_{region}_{t}_{uuid.uuid4().hex[:8]}"
+                            )
+
+                    # Minimum up/down time constraints
+                    region_uc = uc_params.get(region, {}).get(tech, {})
+                    min_up = int(region_uc.get('min_up_time', 0))
+                    min_down = int(region_uc.get('min_down_time', 0))
+                    if min_up > 1:
+                        for idx in range(len(T) - min_up + 1):
+                            # For each window, ensure that if a unit is started up, it stays ON for at least min_up periods
+                            t_start = T[idx]
+                            window = T[idx:idx+min_up]
+                            for t_w in window:
+                                if startup_var in self.variables and uc_var in self.variables:
+                                    self.model += (
+                                        self.variables[uc_var][t_w] >= self.variables[startup_var][t_start],
+                                        f"min_up_time_{tech}_{region}_{t_w}_{uuid.uuid4().hex[:8]}"
+                                    )
+                    if min_down > 1:
+                        for idx in range(len(T) - min_down + 1):
+                            t_start = T[idx]
+                            window = T[idx:idx+min_down]
+                            for t_w in window:
+                                if startup_var in self.variables and uc_var in self.variables:
+                                    # If a unit is shut down, it must remain OFF for at least min_down periods
+                                    # shutdown = 1 if uc[t-1]=1 and uc[t]=0 ⇒ shutdown = uc[t-1] - uc[t]
+                                    if idx > 0:
+                                        t_prev = T[idx-1]
+                                        shutdown = self.variables[uc_var][t_prev] - self.variables[uc_var][t_start]
+                                        self.model += (
+                                            1 - self.variables[uc_var][t_w] >= shutdown,
+                                            f"min_down_time_{tech}_{region}_{t_w}_{uuid.uuid4().hex[:8]}"
+                                        )
+        
+        # Add storage capacity constraints
+        for region in self.regions:
             for storage_tech in self.storage_techs:
                 if f"storage_charge_{storage_tech}_{region}" in self.variables:
                     for t in T:
@@ -1243,7 +1362,7 @@ class RegionalFlexOptimizer:
         
         # --- If using a commercial solver (e.g. GUROBI, CPLEX), you can get an IIS (Irreducible Infeasible Subset)
         # by passing solver-specific options. See the solver documentation for details.
-        if self.use_simplified_model and self.simplification_options.get("lp_relaxation", True):
+        if self.use_simplified_model and self.simplification_options.get("lp_relaxation", False):
             logger.info("Converting MILP to LP by relaxing integer constraints")
             for var in self.binary_vars:
                 var.cat = LpContinuous    # ← plus de référence à pl
@@ -1259,36 +1378,27 @@ class RegionalFlexOptimizer:
         solver_options = []
         if time_limit is not None:
             solver_options.append(("timeLimit", time_limit))
-            
         if threads is not None:
             solver_options.append(("threads", threads))
+        # Force CBC solver only
+        from pulp import PULP_CBC_CMD
+        solver_options_str = [f"{name}={value}" for name, value in solver_options]
+        solver_to_use = PULP_CBC_CMD(msg=True, options=solver_options_str)
         
-        # Choose solver: if a solver instance is provided, use it directly
-        if solver is not None and not isinstance(solver, str):
-            solver_to_use = solver
-        elif solver == "GUROBI_CMD":
-            # Check if GUROBI_CMD is available in PuLP
-            try:
-                from pulp import GUROBI_CMD
-                solver_to_use = GUROBI_CMD(options=solver_options)
-            except ImportError:
-                logger.warning("GUROBI_CMD not available, falling back to CBC")
-                solver_options_str = [f"{name}={value}" for name, value in solver_options]
-                solver_to_use = PULP_CBC_CMD(options=solver_options_str)
-        elif solver == "CPLEX_CMD":
-            # Check if CPLEX_CMD is available in PuLP
-            try:
-                from pulp import CPLEX_CMD
-                solver_to_use = CPLEX_CMD(options=solver_options)
-            except ImportError:
-                logger.warning("CPLEX_CMD not available, falling back to CBC")
-                solver_options_str = [f"{name}={value}" for name, value in solver_options]
-                solver_to_use = PULP_CBC_CMD(options=solver_options_str)
-        else:
-            # Default to HiGHS with options
-            from pulp import HiGHS_CMD
-            solver_to_use = HiGHS_CMD(msg=True)
-        
+        # --- Diagnostic: Print all constraints involving uc_* variables ---
+        print("\n[UC Constraint Diagnostics]")
+        uc_constraints = [c for c in self.model.constraints if "uc_" in c]
+        print(f"Total constraints involving 'uc_': {len(uc_constraints)}")
+        from collections import defaultdict
+        uc_var_to_constraints = defaultdict(list)
+        for cname in self.model.constraints:
+            if "uc_" in cname:
+                for vname in self.variables:
+                    if vname.startswith("uc_") and vname in cname:
+                        uc_var_to_constraints[vname].append(cname)
+        for vname, clist in uc_var_to_constraints.items():
+            print(f"{vname}: {len(clist)} constraints (sample: {clist[:3]})")
+        print("[End UC Constraint Diagnostics]\n")
         # Record start time
         start_time = time.time()
         
@@ -1484,74 +1594,80 @@ class RegionalFlexOptimizer:
             'variables': {}
         }
         
-        # Extract variable values
-        for var_name, var_dict in self.variables.items():
-            # Initialize the variable result dictionary
+        # Extract all model variables (not just uc_*)
+        for var_name, time_dict in self.variables.items():
             results['variables'][var_name] = {}
-            
-            # Extract each time period value
-            for t, var in var_dict.items():
-                results['variables'][var_name][t] = var.value()
-        
-        # Add dual variables (nodal prices from LP relaxation)
+            for t, var in time_dict.items():
+                results['variables'][var_name][t] = var.varValue
+
+        # Debug print: sample first 3 time steps for each uc_* variable
+        print("\nSample unit commitment variable values (first 3 time steps per region/tech):")
+        for var_name in results['variables']:
+            if var_name.startswith("uc_"):
+                vals = results['variables'][var_name]
+                sample = {k: vals[k] for k in list(vals)[:3]}
+                print(f"{var_name}: {sample}")
+
+        # Include dual variables (nodal prices) if provided
         if dual_variables is not None:
             results['dual_variables'] = dual_variables
-        else:
-            results['dual_variables'] = None
+        elif hasattr(self, 'dual_variables'):
+            results['dual_variables'] = getattr(self, 'dual_variables')
+            sample = {k: vals[k] for k in list(vals)[:3]}
+            print(f"{var_name}: {sample}")
 
-        # Add metadata about the optimization
-        results['metadata'] = {
-            'model_name': self.model.name,
-            'num_variables': len(self.model.variables()),
-            'num_constraints': len(self.model.constraints),
-            'timestamp': datetime.now().isoformat(),
-            'config_path': self.config_path
-        }
-        
-        # Calculate total generation, imports, exports by region
-        results['regional_summary'] = {}
+        # Include dual variables (nodal prices) if provided
+        if dual_variables is not None:
+            results['dual_variables'] = dual_variables
+        elif hasattr(self, 'dual_variables'):
+            results['dual_variables'] = getattr(self, 'dual_variables')
+
+        results['total_storage_charge'] = {}
+            
+        # Regional summary aggregation
+        if 'regional_summary' not in results:
+            results['regional_summary'] = {}
         for region in self.regions:
-            results['regional_summary'][region] = {
-                'total_dispatch': {},
-                'total_storage_charge': {},
-                'total_storage_discharge': {},
-                'total_imports': 0,
-                'total_exports': 0,
-                'demand_response': {}
+            if region not in results['regional_summary']:
+                results['regional_summary'][region] = {
+                    'total_dispatch': {},
+                    'total_storage_charge': {},
+                    'total_storage_discharge': {},
+                    'total_imports': 0,
+                    'total_exports': 0,
+                    'demand_response': 0
             }
-            
-            # Sum up technology dispatch
-            for tech in self.dispatch_techs:
-                var_key = f"dispatch_{tech}_{region}"
-                if var_key in results['variables']:
-                    total_dispatch = sum(results['variables'][var_key].values())
-                    results['regional_summary'][region]['total_dispatch'][tech] = total_dispatch
-            
-            # Sum up storage operations
-            for storage_tech in self.storage_techs:
-                # Charging
-                var_key = f"storage_charge_{storage_tech}_{region}"
-                if var_key in results['variables']:
-                    total_charge = sum(results['variables'][var_key].values())
-                    results['regional_summary'][region]['total_storage_charge'][storage_tech] = total_charge
-                
-                # Discharging
-                var_key = f"storage_discharge_{storage_tech}_{region}"
-                if var_key in results['variables']:
-                    total_discharge = sum(results['variables'][var_key].values())
-                    results['regional_summary'][region]['total_storage_discharge'][storage_tech] = total_discharge
-            
-            # Sum up demand response
-            var_key = f"demand_response_{region}"
+
+        # Sum up technology dispatch
+        for tech in self.dispatch_techs:
+            var_key = f"dispatch_{tech}_{region}"
             if var_key in results['variables']:
-                total_dr = sum(results['variables'][var_key].values())
-                results['regional_summary'][region]['demand_response']['total'] = total_dr
-                
-                # Count positive and negative DR hours
-                pos_dr = sum(1 for v in results['variables'][var_key].values() if v > 0)
-                neg_dr = sum(1 for v in results['variables'][var_key].values() if v < 0)
-                results['regional_summary'][region]['demand_response']['positive_hours'] = pos_dr
-                results['regional_summary'][region]['demand_response']['negative_hours'] = neg_dr
+                total_dispatch = sum(results['variables'][var_key].values())
+                results['regional_summary'][region]['total_dispatch'][tech] = total_dispatch
+            
+        # Sum up storage operations
+        for storage_tech in self.storage_techs:
+            # Charging
+            var_key = f"storage_charge_{storage_tech}_{region}"
+            if var_key in results['variables']:
+                total_charge = sum(results['variables'][var_key].values())
+                results['regional_summary'][region]['total_storage_charge'][storage_tech] = total_charge
+            # Discharging
+            var_key = f"storage_discharge_{storage_tech}_{region}"
+            if var_key in results['variables']:
+                total_discharge = sum(results['variables'][var_key].values())
+                results['regional_summary'][region]['total_storage_discharge'][storage_tech] = total_discharge
+        # Sum up demand response
+        var_key = f"demand_response_{region}"
+        if var_key in results['variables']:
+            total_dr = sum(results['variables'][var_key].values())
+            pos_dr = sum(1 for v in results['variables'][var_key].values() if v > 0)
+            neg_dr = sum(1 for v in results['variables'][var_key].values() if v < 0)
+            results['regional_summary'][region]['demand_response'] = {
+                'total': total_dr,
+                'positive_hours': pos_dr,
+                'negative_hours': neg_dr
+            }
         
         # Calculate exchanges between regions
         results['exchanges'] = {}
@@ -1607,17 +1723,16 @@ class RegionalFlexOptimizer:
                 results['curtailment'][region] = sum(results['variables'][var_key].values())
 
         
-        return results
+            return results
 
-    def run_model(self, time_limit=None, threads=None):
-        """Run the optimization model - wrapper for the solve method.
-        
-        Args:
-{{ ... }}
-            time_limit (int, optional): Maximum solver time in seconds
-            threads (int, optional): Number of parallel threads to use for solving
+def run_model(self, time_limit=None, threads=None):
+    """Run the optimization model - wrapper for the solve method.
+    
+    Args:
+        time_limit (int, optional): Maximum solver time in seconds
+        threads (int, optional): Number of parallel threads to use for solving
             
-        Returns:
-            Tuple[str, float]: Optimization status and solve time in seconds
-        """
-        return self.solve(time_limit=time_limit, threads=threads)
+    Returns:
+        Tuple[str, float]: Optimization status and solve time in seconds
+    """
+    return self.solve(time_limit=time_limit, threads=threads)

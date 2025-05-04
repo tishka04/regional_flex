@@ -19,8 +19,8 @@ import matplotlib.pyplot as plt
 PALETTE = {
     # production
     "hydro": "#1f77b4",       "nuclear": "#ff7f0e",
-    "thermal_gas": "#2ca02c", "thermal_coal": "#d62728",
-    "biofuel": "#9467bd",
+    "biofuel": "#ff00ff",     # Changed to bright magenta to make it more visible
+    "thermal_gas": "#2ca02c", "thermal_fuel": "#d62728",
     # flexibilité
     "slack_pos": "#7f7f7f",   "slack_neg": "#bcbd22",
     "demand_response": "#e377c2", "curtail": "#8e8e8e",
@@ -29,7 +29,9 @@ PALETTE = {
     # agrégats flux
     "imports": "#1f78b4", "exports": "#e31a1c", "net": "#17becf",
 }
-DISPATCH_TECHS = ["hydro", "nuclear", "thermal_gas", "thermal_coal", "biofuel"]
+# Order matters for stacked plots - lowest variable cost first, then most expensive
+# Put biofuel before thermal to match merit order
+DISPATCH_TECHS = ["hydro", "nuclear", "biofuel", "thermal_gas", "thermal_fuel"]
 STORAGE_TECHS  = ["batteries", "STEP"]
 
 # --------------------------------------------------------------------------- #
@@ -135,6 +137,21 @@ def main():
 
     regions = res["regions"]
     targets = regions if args.all_regions else [args.region or regions[0]]
+    
+    # DIAGNOSTIC - Check if biofuel is being dispatched at all
+    print("\n--- DIAGNOSTIC: Biofuel Dispatch ---")
+    for region in regions:
+        biofuel_key = f"dispatch_biofuel_{region}"
+        if biofuel_key in res["variables"]:
+            biofuel_sum = sum(res["variables"][biofuel_key])
+            biofuel_max = max(res["variables"][biofuel_key]) if res["variables"][biofuel_key] else 0
+            if biofuel_sum > 0:
+                print(f"  {region} - Total: {biofuel_sum:.2f} MWh, Max: {biofuel_max:.2f} MW")
+            else:
+                print(f"  {region} - No biofuel dispatched (zero values)")
+        else:
+            print(f"  {region} - Biofuel variable not found in results")
+    print("------------------------------\n")
 
     # horizon temporel
     first_var = next(iter(res["variables"].values()))
@@ -161,7 +178,18 @@ def main():
                 range(len(idx)), fill_value=0.0
             )
             dispatch[tech] = s.values
-        dispatch = dispatch.loc[mask, dispatch.sum() > 0]
+        # Only keep technologies that are actually dispatched with meaningful values
+        # Filter out columns where the sum is very small (less than 1 MWh across all time periods)
+        dispatched_cols = [col for col in dispatch.columns if dispatch[col].sum() > 1.0]
+        dispatch = dispatch.loc[mask, dispatched_cols]
+        
+        # Make sure remaining columns are in the right order for stacking
+        ordered_cols = [col for col in DISPATCH_TECHS if col in dispatched_cols]
+        dispatch = dispatch[ordered_cols]
+        
+        # Create larger figure to improve visibility
+        plt.figure(figsize=(12, 8))
+        
         plot_df(
             dispatch,
             f"Dispatch – {region}",
@@ -171,6 +199,22 @@ def main():
             area=True,
             stacked=True,
         )
+        
+        # Also create zoomed version to highlight small dispatches
+        thermal_keys = [k for k in ["biofuel", "thermal_gas", "thermal_fuel"] if k in dispatch.columns]
+        if thermal_keys:
+            thermal_only = dispatch[thermal_keys]
+            if thermal_only.sum().sum() > 0:  # Only create plot if there's some thermal dispatch
+                plt.figure(figsize=(12, 6))
+                plot_df(
+                    thermal_only,
+                    f"Thermal Dispatch Detail – {region}",
+                    "MW",
+                    reg_out / f"dispatch_thermal_detail_{region}.png",
+                    colors=[PALETTE.get(t) for t in thermal_only.columns],
+                    area=True,
+                    stacked=True,
+                )
 
         # ======================= STORAGE SOC ============================ #
         soc = build_df(res, "storage_soc_").set_index(idx)
