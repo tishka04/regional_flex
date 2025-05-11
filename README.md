@@ -22,7 +22,7 @@ Le modèle attend un **pas de temps demi‑horaire** (48 × 365 = 17 5
 ## 3 · Lancer une optimisation
 
 ### Utilisation de l'option de curtailment
-Depuis la version X.X, vous pouvez activer ou désactiver la prise en compte du curtailment (écrêtement de production) via le flag CLI `--enable-curtailment`.
+Depuis la version 5.0, vous pouvez activer ou désactiver la prise en compte du curtailment (écrêtement de production) via le flag CLI `--enable-curtailment`.
 
 - **Avec curtailment (par défaut: désactivé)**
 
@@ -71,26 +71,12 @@ Produit :
 
 Option `--all-regions` génère toutes les régions ; `--start/--end` coupe la plage.
 
-### Notebook interactif
-1. Ouvrir `regional_flex_dashboard_fixed.ipynb` dans Jupyter Lab.
-2. Sélectionner :
-   - un pickle dans **Results**
-   - la **Region**
-   - un preset ou dates custom
-3. *Update plots* → affichage dynamique + widgets.
 
-## 5 · Paramétrage avancé
-- **Capacités régionales** : section `regional_capacities` du YAML.
-- **Coûts variables** : `costs:` (globaux) ou `regional_costs:`.
-- **Simplifications** : dans le code, `self.use_simplified_model` + `simplification_options`.
-
-## 6 · FAQ rapide
-| Problème | Piste / Fix |
-|----------|------------|
-| Bande violette énorme | Vérifier filtre des techno et séries nulles (palette + `non_zero` filter). |
-| Biofuel illimité | Harmoniser espaces → underscores dans les noms de région + bornage par défaut à 0 MW. |
-| Slack massif | Penalty trop bas ou contraintes trop serrées. Ajuster `slack_penalty` ou vérif. ramping/échanges. |
-
+## 5 · Paramétrage avancé
+- **Capacités régionales** : section `regional_capacities` du YAML.
+- **Coûts variables** : `costs:` (globaux) ou `regional_costs:`.
+- **Simplifications** : dans le code, `self.use_simplified_model` + `simplification_options`.
+   
 ---
-© 2025 Théotime Coudray – licence MIT
+© 2025 Théotime Coudray – licence MIT
 
