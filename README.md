@@ -17,7 +17,7 @@ project_root/
 ```
 Le modèle attend un **pas de temps demi‑horaire** (48 × 365 = 17 520 lignes) et les colonnes :
 - `demand` (ou `consumption`, `load`)
-- `hydro`, `nuclear`, `thermal_gas`, `thermal_coal`, `biofuel`, … (facultatif si déjà déduits)
+- `hydro`, `nuclear`, `thermal_gas`, `thermal_fuell`, `biofuel`, … (facultatif si déjà déduits)
 
 ## 3 · Lancer une optimisation
 
