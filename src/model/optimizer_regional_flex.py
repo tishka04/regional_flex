@@ -308,9 +308,10 @@ class RegionalFlexOptimizer:
                     k = f"{prefix}_{st}_{region}"
                     self.variables[k] = {t: LpVariable(f"{k}_{t}", lowBound=0) for t in T}
 
-            # c) demand-response (±)
+            # c) demand-response (positive only: reduction in demand)
             k = f"demand_response_{region}"
-            self.variables[k] = {t: LpVariable(f"{k}_{t}") for t in T}
+            self.variables[k] = {t: LpVariable(f"{k}_{t}", lowBound=0) for t in T}
+# DR variable is now strictly positive (no increase in demand allowed)
 
             # d) slack ±
             for sign in ("pos", "neg"):
@@ -454,7 +455,7 @@ class RegionalFlexOptimizer:
                     if discharge_key in self.variables and t in self.variables[discharge_key]:
                         objective += self.variables[discharge_key][t] * discharge_c
 
-        # -- 3. Demand-response (valeur absolue) ---------------------------------
+        # -- 3. Demand-response (positive only: reduction in demand) --------------
         dr_cost = costs["demand_response"]
         for region in self.regions:
             dr_key = f"demand_response_{region}"
@@ -463,12 +464,8 @@ class RegionalFlexOptimizer:
             for t in T:
                 if t not in self.variables[dr_key]:
                     continue
-                pos = LpVariable(f"pos_dr_{region}_{t}", lowBound=0)
-                neg = LpVariable(f"neg_dr_{region}_{t}", lowBound=0)
-                # valeur absolue
-                self.model += self.variables[dr_key][t] == pos - neg, \
-                              f"abs_DR_{region}_{t}"
-                objective += (pos + neg) * dr_cost
+                # DR is strictly positive (reduction only)
+                objective += self.variables[dr_key][t] * dr_cost
 
         # -- 4. Flux inter-régions ----------------------------------------------
         flow_cost      = costs["flow"]
@@ -736,30 +733,14 @@ class RegionalFlexOptimizer:
                 # Calculate maximum DR shift for this time period based on demand
                 max_shift = min(demand * max_dr_shift * dr_participation_rate / 100.0, max_dr_total)
                 
-                # Add DR bounds constraints
+                # Add DR upper bound constraint (positive only)
                 self.model += (
                     self.variables[dr_var_name][t] <= max_shift,
                     f"dr_max_{region}_{t}_{uuid.uuid4().hex[:8]}"
                 )
-                
-                self.model += (
-                    self.variables[dr_var_name][t] >= -max_shift,
-                    f"dr_min_{region}_{t}_{uuid.uuid4().hex[:8]}"
-                )
+                # Remove lower bound constraint for negative DR (no longer allowed)
             
-            # Add DR balance constraint (net zero over time horizon)
-            if len(T) > 1:
-                dr_sum = 0
-                valid_times = [t for t in T if t in self.variables[dr_var_name]]
-                
-                if valid_times:
-                    for t in valid_times:
-                        dr_sum += self.variables[dr_var_name][t]
-                    
-                    self.model += (
-                        dr_sum == 0,
-                        f"dr_balance_{region}_{uuid.uuid4().hex[:8]}"
-                    )
+            # Remove DR balance constraint (net zero over time horizon), as only reduction is allowed
         
         # 2. Add ramping constraints (if not skipped)
         if not skip_ramping:
@@ -1283,15 +1264,10 @@ class RegionalFlexOptimizer:
                 # Get demand response variables
                 if f"demand_response_{region}" in self.variables and t in self.variables[f"demand_response_{region}"]:
                     dr_var = self.variables[f"demand_response_{region}"][t]
-                    
-                    # Create absolute value for demand response
-                    dr_abs = LpVariable(f"dr_abs_{region}_{t}", lowBound=0)
-                    self.model += (dr_abs >= dr_var, f"dr_abs_pos_{region}_{t}")
-                    self.model += (dr_abs >= -dr_var, f"dr_abs_neg_{region}_{t}")
-                    
-                    # Add constraint: |DR| >= min_percentage * total_demand
+                    # DR is strictly positive, so no need for absolute value
+                    # Add constraint: DR >= min_percentage * total_demand
                     min_dr_req = min_dr_utilization * total_demand[t]
-                    self.model += (dr_abs >= min_dr_req, 
+                    self.model += (dr_var >= min_dr_req, 
                                   f"min_dr_utilization_{region}_{t}")
         
         # 2. Add minimum exchange utilization constraints
@@ -1645,7 +1621,7 @@ class RegionalFlexOptimizer:
                 total_dispatch = sum(results['variables'][var_key].values())
                 results['regional_summary'][region]['total_dispatch'][tech] = total_dispatch
             
-        # Sum up storage operations
+        # --- Sum up storage operations ---
         for storage_tech in self.storage_techs:
             # Charging
             var_key = f"storage_charge_{storage_tech}_{region}"
@@ -1657,42 +1633,33 @@ class RegionalFlexOptimizer:
             if var_key in results['variables']:
                 total_discharge = sum(results['variables'][var_key].values())
                 results['regional_summary'][region]['total_storage_discharge'][storage_tech] = total_discharge
-        # Sum up demand response
-        var_key = f"demand_response_{region}"
-        if var_key in results['variables']:
-            total_dr = sum(results['variables'][var_key].values())
-            pos_dr = sum(1 for v in results['variables'][var_key].values() if v > 0)
-            neg_dr = sum(1 for v in results['variables'][var_key].values() if v < 0)
-            results['regional_summary'][region]['demand_response'] = {
-                'total': total_dr,
-                'positive_hours': pos_dr,
-                'negative_hours': neg_dr
-            }
-        
-        # Calculate exchanges between regions
+
+        # --- Interregional exchanges: imports/exports and exchanges dict ---
         results['exchanges'] = {}
         for i, r1 in enumerate(self.regions):
             for r2 in self.regions[i+1:]:
-                var_key = f"exchange_{r1}_{r2}"
-                if var_key in results['variables']:
-                    # Net exchange between regions
-                    exchange_values = results['variables'][var_key]
-                    net_exchange = sum(exchange_values.values())
-                    
-                    # Calculate imports and exports for each region
-                    for t, value in exchange_values.items():
-                        if value > 0:  # Positive means r1 exports to r2
-                            results['regional_summary'][r1]['total_exports'] += value
-                            results['regional_summary'][r2]['total_imports'] += value
-                        else:  # Negative means r2 exports to r1
-                            results['regional_summary'][r1]['total_imports'] += -value
-                            results['regional_summary'][r2]['total_exports'] += -value
-                    
+                var_key = f"flow_out_{r1}_{r2}"
+                reverse_key = f"flow_out_{r2}_{r1}"
+                if (var_key in results['variables']) and (reverse_key in results['variables']):
+                    exchange_values = {}
+                    for t in results['variables'][var_key]:
+                        v12 = results['variables'][var_key][t] or 0.0
+                        v21 = results['variables'][reverse_key][t] or 0.0
+                        net = v12 - v21
+                        exchange_values[t] = net
+                        # Exports/imports for each region
+                        if net > 0:
+                            results['regional_summary'][r1]['total_exports'] += net
+                            results['regional_summary'][r2]['total_imports'] += net
+                        elif net < 0:
+                            results['regional_summary'][r1]['total_imports'] += -net
+                            results['regional_summary'][r2]['total_exports'] += -net
                     # Record exchange information
                     results['exchanges'][f"{r1}_to_{r2}"] = {
-                        'net_exchange': net_exchange,
+                        'net_exchange': sum(exchange_values.values()),
                         'time_series': exchange_values
                     }
+
         
         # Calculate slack usage
         results['slack_usage'] = {}
