@@ -13,6 +13,8 @@ cd regional_flex
 pip install -r requirements.txt        # or use a conda environment
 ```
 
+The requirements also install Plotly, Kaleido and Folium which are needed for the geographic visualisations.
+
 The solver relies on the [PuLP](https://pypi.org/project/PuLP/) package which ships with the HiGHS backend.
 
 ## 2. Data preparation
@@ -58,9 +60,8 @@ python view_flex_results.py --pickle results/full_year.pkl \
     --all-regions --out plots
 ```
 
-It produces stacked dispatch graphs, state of charge of storages, slack values, curtailment and import/export flows for each region. You can restrict the output to a single region or a date range using `--region`, `--start` and `--end`.
+It produces stacked dispatch graphs, state of charge of storages, slack values, curtailment and import/export flows for each region. You can restrict the output to a single region or a date range using `--region`, `--start` and `--end`. The script uses a colorblind‑friendly palette defined in `config/colors.yaml`. You may override these colors with `--palette-file my_colors.yaml`.
 
-An interactive notebook `interactive_flex_dashboard.ipynb` is also provided for exploratory analysis.
 
 Additional options produce cumulative summaries and animations:
 
