@@ -2,7 +2,19 @@
 
 A lightweight dispatch model to analyse cross-region flexibility on the French power system. It computes the hourly dispatch that minimises both economic and environmental costs. Hydro, nuclear, gas, fuel and biofuel units are handled with optional curtailment and storage dynamics. The model also optimises inter-regional exchanges with transmission losses.
 
-The repository contains scripts to run the MILP optimization, visualise results and inspect them in a Jupyter dashboard.
+The repository contains scripts to run the MILP optimisation, visualise results, and explore them through a Jupyter or Streamlit dashboard.
+
+## Model overview
+
+The solver is a mixed integer linear program written with [PuLP](https://pypi.org/project/PuLP/). It models hourly dispatch decisions for each region with the following elements:
+
+- generation technologies (nuclear, gas, fuel, biofuel, hydro)
+- optional curtailment of renewables
+- battery and pumped-hydro storage with state of charge dynamics
+- demand response and slack variables for unmet demand
+- cross‑regional flows with transmission losses
+
+All parameters are defined in `config/config_master.yaml` and half‑hourly input data is read from `data/processed/<REGION>.csv`.
 
 ## 1. Installation
 
@@ -72,7 +84,23 @@ python view_flex_results.py --pickle results/full_year.pkl \
 
 `--summary` creates bar charts of total cost, emissions and load factors by region, while `--animate` generates a GIF illustrating dispatch and flows over time.
 
-## 5. Customising scenarios
+For an interactive exploration of the output you can open `interactive_flex_dashboard.ipynb` in Jupyter:
+
+```bash
+jupyter notebook interactive_flex_dashboard.ipynb
+```
+
+## 5. Streamlit application
+
+To explore the results in a web interface you can run the Streamlit app. It reads scenario CSV files such as `full_year.csv` or `winter_weekday.csv` provided in this repository (or generated from your own simulations):
+
+```bash
+streamlit run flex_app.py
+```
+
+Select a scenario, region and date range in the sidebar to display production, storage and price plots.
+
+## 6. Customising scenarios
 
 Most parameters are defined in `config/config_master.yaml`:
 
