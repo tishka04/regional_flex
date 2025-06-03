@@ -9,6 +9,7 @@ Visualisation Regional Flex Optimizer
 import argparse
 from pathlib import Path
 import pickle
+import yaml
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -16,19 +17,45 @@ import matplotlib.pyplot as plt
 # --------------------------------------------------------------------------- #
 # PALETTE
 # --------------------------------------------------------------------------- #
-PALETTE = {
+DEFAULT_PALETTE = {
     # production
-    "hydro": "#1f77b4",       "nuclear": "#ff7f0e",
-    "biofuel": "#ff00ff",     # Changed to bright magenta to make it more visible
-    "thermal_gas": "#2ca02c", "thermal_fuel": "#d62728",
-    # flexibilité
-    "slack_pos": "#7f7f7f",   "slack_neg": "#bcbd22",
-    "demand_response": "#e377c2", "curtail": "#8e8e8e",
-    # stockage
-    "storage_charge": "#ff1493",   "storage_discharge": "#00ced1",
-    # agrégats flux
-    "imports": "#1f78b4", "exports": "#e31a1c", "net": "#17becf",
+    "hydro": "#0072B2",        # blue
+    "nuclear": "#E69F00",      # orange
+    "biofuel": "#009E73",      # green
+    "thermal_gas": "#56B4E9",  # light blue
+    "thermal_fuel": "#D55E00", # reddish orange
+    # flexibility
+    "slack_pos": "#999999",
+    "slack_neg": "#CC79A7",
+    "demand_response": "#F0E442",
+    "curtail": "#999999",
+    # storage
+    "storage_charge": "#CC79A7",
+    "storage_discharge": "#0072B2",
+    # flow aggregates
+    "imports": "#56B4E9",
+    "exports": "#D55E00",
+    "net": "#009E73",
 }
+
+# Will be populated in main() and used throughout
+PALETTE = DEFAULT_PALETTE.copy()
+# --------------------------------------------------------------------------- #
+# Palette utilities
+# --------------------------------------------------------------------------- #
+def load_palette(path: str | None) -> dict:
+    """Return palette dictionary, optionally overridden by a YAML file."""
+    palette = DEFAULT_PALETTE.copy()
+    if path:
+        try:
+            with open(path, "r") as f:
+                user = yaml.safe_load(f) or {}
+            # allow 'palette:' key or direct mapping
+            user_palette = user.get("palette", user)
+            palette.update({k: str(v) for k, v in user_palette.items()})
+        except Exception as exc:
+            print(f"Warning: failed to load palette file {path}: {exc}")
+    return palette
 # Order matters for stacked plots - lowest variable cost first, then most expensive
 # Put biofuel before thermal to match merit order
 DISPATCH_TECHS = ["hydro", "nuclear", "biofuel", "thermal_gas", "thermal_fuel"]
@@ -49,6 +76,11 @@ def build_df(res: dict, prefix: str) -> pd.DataFrame:
 def dt_index(n: int) -> pd.DatetimeIndex:
     """Index demi-horaire démarrant le 01/01/2022-00:00."""
     return pd.date_range("2022-01-01", periods=n, freq="30min")
+
+
+def format_title(label: str, region: str) -> str:
+    """Return unified title with descriptor and region."""
+    return f"{label} – {region}"
 
 
 def plot_df(
@@ -127,10 +159,15 @@ def main():
     pa.add_argument("--all-regions", action="store_true")
     pa.add_argument("--start")
     pa.add_argument("--end")
+    pa.add_argument("--palette-file", help="YAML file overriding default colors")
     args = pa.parse_args()
 
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Load color palette (can be overridden by user file)
+    global PALETTE
+    PALETTE = load_palette(args.palette_file)
 
     with open(args.pickle, "rb") as f:
         res = pickle.load(f)
@@ -192,7 +229,7 @@ def main():
         
         plot_df(
             dispatch,
-            f"Dispatch – {region}",
+            format_title("Dispatch", region),
             "MW",
             reg_out / f"dispatch_{region}.png",
             colors=[PALETTE.get(t) for t in dispatch.columns],
@@ -208,7 +245,7 @@ def main():
                 plt.figure(figsize=(12, 6))
                 plot_df(
                     thermal_only,
-                    f"Thermal Dispatch Detail – {region}",
+                    format_title("Thermal Dispatch Detail", region),
                     "MW",
                     reg_out / f"dispatch_thermal_detail_{region}.png",
                     colors=[PALETTE.get(t) for t in thermal_only.columns],
@@ -221,7 +258,7 @@ def main():
         cols_soc = [c for c in soc.columns if c.endswith(f"_{region}")]
         plot_df(
             soc[cols_soc].loc[mask],
-            f"SOC – {region}",
+            format_title("SOC", region),
             "MWh",
             reg_out / f"soc_{region}.png",
             stacked=False,
@@ -245,7 +282,7 @@ def main():
 
             plot_df(
                 df_pow,
-                f"{tech} – Puissance (±) – {region}",
+                format_title(f"{tech} – Puissance (±)", region),
                 "MW",
                 reg_out / f"{tech}_power_{region}.png",
                 colors=[PALETTE["storage_charge"], PALETTE["storage_discharge"]],
@@ -262,7 +299,7 @@ def main():
         )
         plot_df(
             slack.fillna(0),
-            f"Slack – {region}",
+            format_title("Slack", region),
             "MW",
             reg_out / f"slack_{region}.png",
             colors=[PALETTE["slack_pos"], PALETTE["slack_neg"]],
@@ -275,7 +312,7 @@ def main():
         if region in dr.columns:
             plot_df(
                 dr[[region]].loc[mask],
-                f"Demand response – {region}",
+                format_title("Demand Response", region),
                 "MW",
                 reg_out / f"demand_response_{region}.png",
                 colors=[PALETTE["demand_response"]],
@@ -293,7 +330,7 @@ def main():
             )
             plot_df(
                 cur.to_frame("curtail").loc[mask],
-                f"Curtailment – {region}",
+                format_title("Curtailment", region),
                 "MW",
                 reg_out / f"curtail_{region}.png",
                 colors=[PALETTE["curtail"]],
@@ -307,7 +344,7 @@ def main():
 
         plot_df(
             df_ie[["imports"]],
-            f"Imports – {region}",
+            format_title("Imports", region),
             "MW",
             reg_out / f"imports_{region}.png",
             colors=[PALETTE["imports"]],
@@ -316,7 +353,7 @@ def main():
         )
         plot_df(
             df_ie[["exports"]],
-            f"Exports – {region}",
+            format_title("Exports", region),
             "MW",
             reg_out / f"exports_{region}.png",
             colors=[PALETTE["exports"]],
@@ -325,7 +362,7 @@ def main():
         )
         plot_df(
             df_ie[["net"]],
-            f"Net flow (imports − exports) – {region}",
+            format_title("Net Flow", region),
             "MW",
             reg_out / f"net_flow_{region}.png",
             colors=[PALETTE["net"]],

@@ -35,10 +35,12 @@ def main():
                         help='Run a simulation after processing data')
     parser.add_argument('--time-period', type=str, default=None,
                         help='Time period for simulation in format "YYYY-MM-DD,YYYY-MM-DD"')
+    parser.add_argument('--palette-file', type=str, default=None,
+                        help='YAML file with custom plotting colors')
     args = parser.parse_args()
     
     # Import the eco2mix processor module functions
-    from src.data.process_eco2mix_data import load_config, process_eco2mix_data, run_simulation
+    from src.utils.process_eco2mix_data import load_config, process_eco2mix_data, run_simulation
     
     print(f"Processing eco2mix data for {args.year} from {args.eco2mix}")
     print(f"Output directory: {args.output}")
@@ -54,7 +56,8 @@ def main():
         return False
     
     # Process eco2mix data
-    data = process_eco2mix_data(args.eco2mix, args.output, config, year=args.year)
+    data = process_eco2mix_data(args.eco2mix, args.output, config,
+                                year=args.year, palette_file=args.palette_file)
     
     if not data:
         print("Failed to process eco2mix data")

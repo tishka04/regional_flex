@@ -19,6 +19,16 @@ import logging
 from datetime import datetime
 import matplotlib.pyplot as plt
 
+DEFAULT_PALETTE = {
+    "thermal": "#56B4E9",
+    "nuclear": "#E69F00",
+    "wind": "#009E73",
+    "solar": "#F0E442",
+    "hydro": "#0072B2",
+    "biofuel": "#D55E00",
+    "demand": "#000000",
+}
+
 # Add the project root to the Python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -27,12 +37,29 @@ from src.utils.logger import setup_logger
 # Set up logger
 logger = setup_logger('process_eco2mix')
 
+def format_title(label: str, region: str) -> str:
+    """Return unified title with descriptor and region."""
+    return f"{label} – {region}"
+
+def load_palette(path: str | None) -> dict:
+    """Load color palette from YAML file if provided."""
+    palette = DEFAULT_PALETTE.copy()
+    if path:
+        try:
+            with open(path, 'r') as f:
+                user = yaml.safe_load(f) or {}
+            user_palette = user.get('palette', user)
+            palette.update({k: str(v) for k, v in user_palette.items()})
+        except Exception as exc:
+            logger.warning(f"Failed to load palette {path}: {exc}")
+    return palette
+
 def load_config(config_path):
     """Load configuration from YAML file."""
     with open(config_path, 'r') as f:
         return yaml.safe_load(f)
 
-def process_eco2mix_data(eco2mix_file, output_dir, config, year=2022):
+def process_eco2mix_data(eco2mix_file, output_dir, config, year=2022, palette_file=None):
     """Process eco2mix data for specified year and regions.
     
     Args:
@@ -40,11 +67,14 @@ def process_eco2mix_data(eco2mix_file, output_dir, config, year=2022):
         output_dir (str): Directory where processed data will be saved
         config (dict): Configuration dictionary
         year (int): Year to filter data for
+        palette_file (str, optional): YAML file with custom colors
     
     Returns:
         dict: Dictionary of processed regional data
     """
     logger.info(f"Processing eco2mix data from {eco2mix_file} for year {year}")
+
+    palette = load_palette(palette_file)
     
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
@@ -206,8 +236,8 @@ def process_eco2mix_data(eco2mix_file, output_dir, config, year=2022):
             hourly_avg = clean_data.groupby('hour').mean()
             
             plt.subplot(2, 2, 1)
-            hourly_avg['demand'].plot(label='Demand')
-            plt.title(f'Average Daily Load Profile - {target_region}')
+            hourly_avg['demand'].plot(label='Demand', color=palette['demand'])
+            plt.title(format_title('Average Daily Load Profile', target_region))
             plt.xlabel('Hour of Day')
             plt.ylabel('Power (MW)')
             plt.grid(True)
@@ -215,8 +245,11 @@ def process_eco2mix_data(eco2mix_file, output_dir, config, year=2022):
             # Plot technology mix
             plt.subplot(2, 2, 2)
             tech_cols = ['thermal', 'nuclear', 'wind', 'solar', 'hydro', 'biofuel']
-            hourly_avg[tech_cols].plot.area(stacked=True)
-            plt.title(f'Technology Mix by Hour - {target_region}')
+            hourly_avg[tech_cols].plot.area(
+                stacked=True,
+                color=[palette.get(t) for t in tech_cols]
+            )
+            plt.title(format_title('Technology Mix by Hour', target_region))
             plt.xlabel('Hour of Day')
             plt.ylabel('Power (MW)')
             plt.grid(True)
@@ -226,8 +259,8 @@ def process_eco2mix_data(eco2mix_file, output_dir, config, year=2022):
             monthly_avg = clean_data.groupby('month').mean()
             
             plt.subplot(2, 2, 3)
-            monthly_avg['demand'].plot(marker='o')
-            plt.title(f'Monthly Average Demand - {target_region}')
+            monthly_avg['demand'].plot(marker='o', color=palette['demand'])
+            plt.title(format_title('Monthly Average Demand', target_region))
             plt.xlabel('Month')
             plt.ylabel('Power (MW)')
             plt.grid(True)
@@ -236,8 +269,11 @@ def process_eco2mix_data(eco2mix_file, output_dir, config, year=2022):
             # Technology contribution
             plt.subplot(2, 2, 4)
             tech_total = clean_data[tech_cols].sum()
-            tech_total.plot.pie(autopct='%1.1f%%', startangle=90)
-            plt.title(f'Technology Contribution - {target_region}')
+            tech_total.plot.pie(
+                autopct='%1.1f%%', startangle=90,
+                colors=[palette.get(t) for t in tech_cols]
+            )
+            plt.title(format_title('Technology Contribution', target_region))
             plt.axis('equal')
             
             # Save plot
