@@ -46,17 +46,13 @@ The main entry point is `run_regional_flex.py`. You can run a full year or speci
 
 ```bash
 # full year simulation
-python run_regional_flex.py --config config/config_master.yaml \
-    --data-dir data/processed --preset full_year --out results/full_year.pkl
+python run_regional_flex.py --config config/config_master.yaml --data-dir data/processed --preset full_year --out results/full_year.pkl
 
 # winter weekday (preset)
-python run_regional_flex.py --config config/config_master.yaml \
-    --data-dir data/processed --preset winter_weekday --out results/winter_weekday.pkl
+python run_regional_flex.py --config config/config_master.yaml --data-dir data/processed --preset winter_weekday --out results/winter_weekday.pkl
 
 # custom interval
-python run_regional_flex.py --config config/config_master.yaml \
-    --data-dir data/processed --start 2022-03-01 --end 2022-03-07 \
-    --out results/march.pkl
+python run_regional_flex.py --config config/config_master.yaml --data-dir data/processed --start 2022-03-01 --end 2022-03-07 --out results/march.pkl
 ```
 
 Passing `--enable-curtailment` allows the solver to curtail renewable generation. Without it, curtailment variables are omitted and the optimisation enforces full use of available generation.
