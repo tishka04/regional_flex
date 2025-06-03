@@ -20,6 +20,9 @@ from datetime import datetime, timedelta
 import pandas as pd
 import matplotlib.pyplot as plt
 import pulp
+from rolling_utils import rolling_horizon_indices
+from src.model.optimizer_regional_flex import RegionalFlexOptimizer
+from src.model import calculate_emissions
 
 # ----- presets for the paper ------------------------------------------------
 PRESETS = {
@@ -122,9 +125,6 @@ def main():
     data_int = filter_interval(data_all, start_dt, end_dt)
 
     # --- ROLLING HORIZON LOGIC ---
-    from rolling_utils import rolling_horizon_indices
-    from src.model.optimizer_regional_flex import RegionalFlexOptimizer
-
     nsteps = len(next(iter(data_int.values())))
     window_size = 336  # 2 weeks of half-hours
     stride = 336       # non-overlapping windows
@@ -203,6 +203,9 @@ def main():
         'regions': stitched_regions,
         'dual_variables': stitched_duals
     }
+
+    # Calculate environmental indicators
+    results['emissions'] = calculate_emissions(results, cfg)
     # Validate results before saving
     print("\nValidating results...")
     tech_capacities = cfg.get('regional_capacities', {})
@@ -259,6 +262,12 @@ def main():
     # Calculate total expense
     expense = (df_price * demand_df * dt_h).sum().sum()
     print(f"\nDépense spot simulée : {expense:.2f}€")
+
+    # Print emission summary
+    if 'emissions' in results:
+        print("\nÉmissions totales (tCO2) :")
+        for region, val in results['emissions']['total_by_region'].items():
+            print(f"  {region}: {val:.2f}")
 
     # --- basic plots --------------------------------------------------------
     outdir = 'plots'

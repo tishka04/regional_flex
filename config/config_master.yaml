@@ -149,6 +149,25 @@ costs:
   slack_penalty:    50000.0
   curtailment_penalty: 10000.0
 
+# Facteurs d'émission par technologie (tCO2/MWh)
+emission_factors:
+  hydro:        0.0
+  nuclear:      0.0
+  biofuel:      0.20
+  thermal_gas:  0.35
+  thermal_fuel: 0.75
+
+# Émissions supplémentaires lors d'un démarrage (tCO2)
+startup_emissions:
+  hydro:        0.0
+  nuclear:     10.0
+  biofuel:      0.5
+  thermal_gas:  1.0
+  thermal_fuel: 1.5
+
+# Facteur de pénalité sur les rampes (fraction des émissions de la variation)
+ramp_emission_penalty: 0.05
+
 # Override region-specific costs that were being loaded
 regional_costs:
   Auvergne_Rhone_Alpes:
