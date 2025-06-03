@@ -62,6 +62,15 @@ It produces stacked dispatch graphs, state of charge of storages, slack values, 
 
 An interactive notebook `interactive_flex_dashboard.ipynb` is also provided for exploratory analysis.
 
+Additional options produce cumulative summaries and animations:
+
+```bash
+python view_flex_results.py --pickle results/full_year.pkl \
+    --all-regions --config config/config_master.yaml --summary --animate
+```
+
+`--summary` creates bar charts of total cost, emissions and load factors by region, while `--animate` generates a GIF illustrating dispatch and flows over time.
+
 ## 5. Customising scenarios
 
 Most parameters are defined in `config/config_master.yaml`:

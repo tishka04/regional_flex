@@ -12,6 +12,8 @@ import pickle
 
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation, PillowWriter
+import yaml
 
 # --------------------------------------------------------------------------- #
 # PALETTE
@@ -33,6 +35,15 @@ PALETTE = {
 # Put biofuel before thermal to match merit order
 DISPATCH_TECHS = ["hydro", "nuclear", "biofuel", "thermal_gas", "thermal_fuel"]
 STORAGE_TECHS  = ["batteries", "STEP"]
+
+# Approximate emission factors in gCO2 per kWh
+EMISSION_FACTORS = {
+    "hydro": 6,
+    "nuclear": 12,
+    "biofuel": 230,
+    "thermal_gas": 400,
+    "thermal_fuel": 750,
+}
 
 # --------------------------------------------------------------------------- #
 # HELPERS
@@ -118,6 +129,76 @@ def aggregate_import_export(res: dict, region: str, idx: pd.DatetimeIndex):
     )
 
 
+def compute_cumulative_metrics(res: dict, idx: pd.DatetimeIndex, config: dict) -> pd.DataFrame:
+    """Return total cost (\u20ac), emissions (tCO2) and load factors per region."""
+    dt_h = 0.5
+    costs = config.get("costs", {})
+    reg_costs = config.get("regional_costs", {})
+    capacities = config.get("regional_capacities", {})
+
+    summary = []
+    n_steps = len(idx)
+    for region in res["regions"]:
+        cost = 0.0
+        emissions = 0.0
+        lf = {}
+        for tech in DISPATCH_TECHS:
+            var_key = f"dispatch_{tech}_{region}"
+            values = res["variables"].get(var_key, {})
+            total_mw = sum(values.values())
+            energy = total_mw * dt_h
+            unit_cost = costs.get(tech, 0.0)
+            if region in reg_costs and tech in reg_costs[region]:
+                unit_cost = reg_costs[region][tech]
+            cost += energy * unit_cost
+            emissions += energy * EMISSION_FACTORS.get(tech, 0) / 1000.0
+
+            cap = capacities.get(region, {}).get(tech)
+            if cap:
+                lf[tech] = energy / (cap * n_steps * dt_h)
+
+        summary.append({"region": region, "cost": cost, "emissions": emissions, **{f"lf_{k}": v for k, v in lf.items()}})
+
+    return pd.DataFrame(summary).set_index("region")
+
+
+def animate_region(res: dict, idx: pd.DatetimeIndex, region: str, out_path: Path, data_dir: Path | None = None) -> None:
+    """Create a GIF showing dispatch stack and net flow over time."""
+    dispatch = pd.DataFrame(index=idx)
+    for tech in DISPATCH_TECHS:
+        key = f"dispatch_{tech}_{region}"
+        dispatch[tech] = pd.Series(res["variables"].get(key, {})).reindex(range(len(idx)), fill_value=0.0).values
+
+    imports, exports, net = aggregate_import_export(res, region, idx)
+
+    demand = None
+    if data_dir is not None:
+        csv = Path(data_dir) / f"{region}.csv"
+        if csv.exists():
+            demand = pd.read_csv(csv, index_col=0, parse_dates=True)["demand"].reindex(idx)
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6))
+
+    def update(frame):
+        ax1.clear(); ax2.clear()
+        dispatch.iloc[:frame+1].plot.area(ax=ax1, color=[PALETTE.get(t) for t in dispatch.columns], linewidth=0.0)
+        if demand is not None:
+            ax1.plot(demand.index[:frame+1], demand.iloc[:frame+1], "k--", label="demand")
+            ax1.legend()
+        ax1.set_xlim(idx[0], idx[-1])
+        ax1.set_ylim(0, max(dispatch.sum(axis=1).max(), demand.max() if demand is not None else 0)*1.1)
+        ax1.set_title(f"Dispatch – {region}")
+
+        net.iloc[:frame+1].plot(ax=ax2, color=PALETTE["net"])
+        ax2.set_xlim(idx[0], idx[-1])
+        ax2.set_title("Net flow")
+
+    frames = range(0, len(idx), 4)
+    anim = FuncAnimation(fig, update, frames=frames, interval=100)
+    anim.save(out_path, writer=PillowWriter(fps=10))
+    plt.close(fig)
+
+
 # --------------------------------------------------------------------------- #
 def main():
     pa = argparse.ArgumentParser(description="Plot RFO results")
@@ -127,6 +208,10 @@ def main():
     pa.add_argument("--all-regions", action="store_true")
     pa.add_argument("--start")
     pa.add_argument("--end")
+    pa.add_argument("--config", help="fichier YAML de configuration (coûts, capacités)")
+    pa.add_argument("--data-dir", help="répertoire CSV pour la demande")
+    pa.add_argument("--summary", action="store_true", help="produit les graphiques cumulés")
+    pa.add_argument("--animate", action="store_true", help="génère une animation GIF pour la région")
     args = pa.parse_args()
 
     out_dir = Path(args.out)
@@ -134,6 +219,11 @@ def main():
 
     with open(args.pickle, "rb") as f:
         res = pickle.load(f)
+
+    cfg = {}
+    if args.config:
+        with open(args.config, "r") as f:
+            cfg = yaml.safe_load(f)
 
     regions = res["regions"]
     targets = regions if args.all_regions else [args.region or regions[0]]
@@ -332,6 +422,32 @@ def main():
             stacked=False,
             area=False,
         )
+
+        if args.animate:
+            gif_path = reg_out / f"animation_{region}.gif"
+            animate_region(res, idx[mask] if mask is not slice(None) else idx, region, gif_path, args.data_dir)
+
+    if args.summary and cfg:
+        summary = compute_cumulative_metrics(res, idx[mask] if mask is not slice(None) else idx, cfg)
+        ax = (summary["cost"] / 1e6).plot.bar(title="Total cost by region (M€)")
+        ax.set_ylabel("M€")
+        ax.figure.tight_layout()
+        ax.figure.savefig(out_dir / "cost_by_region.png", dpi=180)
+        plt.close(ax.figure)
+
+        ax = summary["emissions"].plot.bar(title="Total emissions by region (tCO₂)")
+        ax.set_ylabel("tCO₂")
+        ax.figure.tight_layout()
+        ax.figure.savefig(out_dir / "emissions_by_region.png", dpi=180)
+        plt.close(ax.figure)
+
+        lf_cols = [c for c in summary.columns if c.startswith("lf_")]
+        if lf_cols:
+            ax = summary[lf_cols].plot.bar()
+            ax.set_title("Load factors")
+            ax.figure.tight_layout()
+            ax.figure.savefig(out_dir / "load_factors.png", dpi=180)
+            plt.close(ax.figure)
 
     print(f"✅  Graphiques enregistrés dans « {out_dir} »")
 
