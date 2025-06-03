@@ -1,82 +1,91 @@
-# Regional Flex Optimizer – Quick Start
+# Regional Flex Optimizer
 
-## 1 · Cloner & créer l’environnement
+A lightweight dispatch model to analyse cross-region flexibility on the French power system. It computes the least-cost hourly operation of hydro, nuclear, gas, fuel and biofuel units with optional curtailment and storage dynamics. The model also optimises inter-regional exchanges with transmission losses.
+
+The repository contains scripts to run the MILP optimization, visualise results and inspect them in a Jupyter dashboard.
+
+## 1. Installation
+
 ```bash
+# clone and install dependencies
 git clone https://github.com/mon-org/regional_flex.git
 cd regional_flex
-conda env create -f environment.yml  # ou pip install -r requirements.txt
-conda activate regional_flex          # (ou venv)
+pip install -r requirements.txt        # or use a conda environment
 ```
 
-## 2 · Préparer les données
-```
-project_root/
-├── data/
-│   └── processed/         # *.csv ou *.parquet prêt à l’emploi
-└── config_master.yaml     # paramètres globaux + capacités régionales
-```
-Le modèle attend un **pas de temps demi‑horaire** (48 × 365 = 17 520 lignes) et les colonnes :
-- `demand` (ou `consumption`, `load`)
-- `hydro`, `nuclear`, `thermal_gas`, `thermal_fuell`, `biofuel`, … (facultatif si déjà déduits)
+The solver relies on the [PuLP](https://pypi.org/project/PuLP/) package which ships with the HiGHS backend.
 
-## 3 · Lancer une optimisation
+## 2. Data preparation
 
-### Utilisation de l'option de curtailment
-Depuis la version 5.0, vous pouvez activer ou désactiver la prise en compte du curtailment (écrêtement de production) via le flag CLI `--enable-curtailment`.
+Data for each region must be provided in `data/processed/<REGION>.csv` (or the directory you pass via `--data-dir`). Files are expected to contain half-hourly time series (`48 * 365 = 17,520` rows for one year) with at least the following columns:
 
-- **Avec curtailment (par défaut: désactivé)**
+- `demand` (or `consumption`, `load`)
+- optional generation series such as `hydro`, `nuclear`, `thermal_gas`, `thermal_fuel`, `biofuel`, etc.
+
+A master configuration file `config/config_master.yaml` defines available regions, capacities, costs and other constraints. Adjust it to match your dataset.
+
+## 3. Running an optimisation
+
+The main entry point is `run_regional_flex.py`. You can run a full year or specific periods using built-in presets or custom dates. Results are stored as a pickle file containing all decision variables.
+
+### Examples
 
 ```bash
-python run_regional_flex.py --config config/config_master.yaml --data-dir data/processed --preset full_year --out results/full_year.pkl --enable-curtailment
+# full year simulation
+python run_regional_flex.py --config config/config_master.yaml \
+    --data-dir data/processed --preset full_year --out results/full_year.pkl
+
+# winter weekday (preset)
+python run_regional_flex.py --config config/config_master.yaml \
+    --data-dir data/processed --preset winter_weekday --out results/winter_weekday.pkl
+
+# custom interval
+python run_regional_flex.py --config config/config_master.yaml \
+    --data-dir data/processed --start 2022-03-01 --end 2022-03-07 \
+    --out results/march.pkl
 ```
 
-- **Sans curtailment (par défaut)**
+Passing `--enable-curtailment` allows the solver to curtail renewable generation. Without it, curtailment variables are omitted and the optimisation enforces full use of available generation.
+
+A rolling-horizon scheme is implemented internally (two‑week windows) so even long horizons remain tractable.
+
+## 4. Visualising results
+
+Use the companion script `view_flex_results.py` to generate PNG plots from a result pickle:
 
 ```bash
-python run_regional_flex.py --config config/config_master.yaml --data-dir data/processed --preset full_year --out results/full_year.pkl
-
-python run_regional_flex.py --config config/config_master.yaml --data-dir data/processed --preset winter_weekday --out results/winter_weekday.pkl
+python view_flex_results.py --pickle results/full_year.pkl \
+    --all-regions --out plots
 ```
 
-> Si vous n'ajoutez pas le flag `--enable-curtailment`, le modèle n'autorisera pas l'écrêtement de production et les variables associées ne seront pas incluses dans l'optimisation.
+It produces stacked dispatch graphs, state of charge of storages, slack values, curtailment and import/export flows for each region. You can restrict the output to a single region or a date range using `--region`, `--start` and `--end`.
 
-### Scénario complet 2022
-| Preset               | Période ciblée | Exemple de commande |
-|----------------------|----------------|---------------------|
-| `winter_weekday`     | 18 janvier 22  | `--preset winter_weekday` |
-| `autumn_weekend`     | 9 octobre 22   | … |
-| `spring_weekday`     | 12 mai 22      | … |
-| `summer_holiday`     | 15 août 22     | … |
+An interactive notebook `interactive_flex_dashboard.ipynb` is also provided for exploratory analysis.
 
-### Intervalle sur mesure
-```bash
-python run_regional_flex.py \
-       --start 2022-03-01 --end 2022-03-07 \
-       --out results/mars.pkl
+## 5. Customising scenarios
+
+Most parameters are defined in `config/config_master.yaml`:
+
+- `regional_capacities`: generation capacities by region and technology
+- `regional_storage`: power and energy ratings for batteries and pumped hydro
+- `costs` and `regional_costs`: variable and fixed costs
+- `uc_params`: unit commitment constraints (start‑up costs, minimum up/down time...)
+- `regional_distances` and `loss_factor_per_km`: transmission distances and losses
+
+To explore new scenarios, modify these sections or add new regions/time series in `data/processed`. Presets for common dates are defined at the top of `run_regional_flex.py`; you can add your own or simply use `--start`/`--end`.
+
+## Repository structure
+
+```
+├── config/                     # configuration files
+├── data/processed/             # input time series (CSV)
+├── results/                    # output pickles and CSVs
+├── plots/                      # figures generated by view_flex_results.py
+├── src/                        # optimisation code
+└── run_regional_flex.py        # command-line runner
 ```
 
-## 4 · Visualiser les résultats
-### Script CLI (PNG)
-```bash
-python view_flex_results.py --pickle results/full_year.pkl --all-regions --out plots
+## License
 
-python view_flex_results.py --pickle results/winter_weekday.pkl --all-regions --out plots_winter
-```
-Produit :
-- `dispatch_<region>.png` · Aire empilée des techno dispatchables
-- `soc_<region>.png` · État de charge des stockages
-- `slack_<region>.png` · Slack ±
-- `curtail_<region>.png` · Curtailment
-- `exchanges_<region>.png` · Flux nets inter‑régions
-
-Option `--all-regions` génère toutes les régions ; `--start/--end` coupe la plage.
-
-
-## 5 · Paramétrage avancé
-- **Capacités régionales** : section `regional_capacities` du YAML.
-- **Coûts variables** : `costs:` (globaux) ou `regional_costs:`.
-- **Simplifications** : dans le code, `self.use_simplified_model` + `simplification_options`.
-   
----
-© 2025 Théotime Coudray – licence MIT
+MIT License © 2025 Théotime Coudray
 
