@@ -60,7 +60,14 @@ python view_flex_results.py --pickle results/full_year.pkl \
 
 It produces stacked dispatch graphs, state of charge of storages, slack values, curtailment and import/export flows for each region. You can restrict the output to a single region or a date range using `--region`, `--start` and `--end`.
 
-An interactive notebook `interactive_flex_dashboard.ipynb` is also provided for exploratory analysis.
+An interactive notebook `interactive_flex_dashboard.ipynb` is also provided for exploratory analysis. A small Streamlit application `flex_app.py` offers similar features directly from the browser:
+
+```bash
+pip install -r requirements.txt
+streamlit run flex_app.py
+```
+
+Use the sidebar to pick a scenario, region and technologies, then browse the resulting graphs interactively.
 
 ## 5. Customising scenarios
 

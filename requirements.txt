@@ -4,3 +4,6 @@ pandas==2.2.3
 pulp==3.1.1
 PyYAML==6.0.2
 tqdm==4.67.1
+
+streamlit==1.35.0
+plotly==5.22.0
