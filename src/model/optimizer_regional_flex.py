@@ -1689,8 +1689,7 @@ class RegionalFlexOptimizer:
             if var_key in results['variables']:
                 results['curtailment'][region] = sum(results['variables'][var_key].values())
 
-        
-            return results
+        return results
 
 def run_model(self, time_limit=None, threads=None):
     """Run the optimization model - wrapper for the solve method.
