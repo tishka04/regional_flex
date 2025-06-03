@@ -20,7 +20,7 @@ All parameters are defined in `config/config_master.yaml` and half‑hourly inpu
 
 ```bash
 # clone and install dependencies
-git clone https://github.com/mon-org/regional_flex.git
+git clone https://github.com/tishka04/regional_flex.git
 cd regional_flex
 pip install -r requirements.txt        # or use a conda environment
 ```
