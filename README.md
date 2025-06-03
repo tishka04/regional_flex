@@ -62,15 +62,6 @@ python view_flex_results.py --pickle results/full_year.pkl \
 
 It produces stacked dispatch graphs, state of charge of storages, slack values, curtailment and import/export flows for each region. You can restrict the output to a single region or a date range using `--region`, `--start` and `--end`.
 
-An interactive notebook `interactive_flex_dashboard.ipynb` is also provided for exploratory analysis.
-You can also generate a geographic view of exchanges with `geo_flows.py`. This script creates an interactive Folium map and a Sankey diagram summarising net energy flows between regions:
-
-```bash
-python src/visualization/geo_flows.py --pickle results/winter_weekday.pkl --out plots
-```
-
-Running the script saves `interregional_flows_map.html` and `interregional_sankey.png` in the chosen output folder (these files are not tracked in Git).
-
 
 ## 5. Customising scenarios
 
