@@ -333,6 +333,36 @@ def main():
             area=False,
         )
 
+        # ================== EMISSIONS ================================ #
+        if "emissions" in res and "timeseries" in res["emissions"]:
+            em_cols = [
+                f"emission_{tech}_{region}" for tech in DISPATCH_TECHS
+                if f"emission_{tech}_{region}" in res["emissions"]["timeseries"]
+            ]
+            if em_cols:
+                em_df = pd.DataFrame(
+                    {col: pd.Series(res["emissions"]["timeseries"][col]) for col in em_cols}
+                ).set_index(idx).loc[mask]
+                ordered = [c for c in em_cols if c in em_df.columns]
+
+                def _tech(col):
+                    base = col[len("emission_") :]
+                    for tech in DISPATCH_TECHS:
+                        if base.startswith(tech + "_"):
+                            return tech
+                    return None
+
+                colors = [PALETTE.get(_tech(c)) for c in ordered]
+                plot_df(
+                    em_df[ordered],
+                    f"Émissions – {region}",
+                    "tCO2",
+                    reg_out / f"emissions_{region}.png",
+                    colors=colors,
+                    stacked=True,
+                    area=True,
+                )
+
     print(f"✅  Graphiques enregistrés dans « {out_dir} »")
 
 # --------------------------------------------------------------------------- #
