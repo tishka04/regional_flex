@@ -63,6 +63,15 @@ python view_flex_results.py --pickle results/full_year.pkl \
 It produces stacked dispatch graphs, state of charge of storages, slack values, curtailment and import/export flows for each region. You can restrict the output to a single region or a date range using `--region`, `--start` and `--end`. The script uses a colorblind‑friendly palette defined in `config/colors.yaml`. You may override these colors with `--palette-file my_colors.yaml`.
 
 
+Additional options produce cumulative summaries and animations:
+
+```bash
+python view_flex_results.py --pickle results/full_year.pkl \
+    --all-regions --config config/config_master.yaml --summary --animate
+```
+
+`--summary` creates bar charts of total cost, emissions and load factors by region, while `--animate` generates a GIF illustrating dispatch and flows over time.
+
 ## 5. Customising scenarios
 
 Most parameters are defined in `config/config_master.yaml`:
