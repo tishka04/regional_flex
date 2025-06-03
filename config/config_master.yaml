@@ -148,6 +148,14 @@ costs:
   storage_discharge:     50.0
   slack_penalty:    50000.0
   curtailment_penalty: 10000.0
+  co2_price:             80.0   # €/tCO2
+
+emission_factors:
+  hydro:        0.0
+  nuclear:      0.0
+  biofuel:      0.0
+  thermal_gas:  0.4
+  thermal_fuel: 0.8
 
 # Override region-specific costs that were being loaded
 regional_costs:

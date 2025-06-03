@@ -152,6 +152,10 @@ class RegionalFlexOptimizer:
         
         self.storage_techs = ["STEP", "batteries"]
         self.renewable_techs = ["hydro"]
+
+        # Environmental cost parameters
+        self.co2_price = float(self.config.get('co2_price', 0.0))
+        self.emission_factors = self.config.get('emission_factors', {})
         
         # Load regional capacities from config
         self.tech_capacities = {}
@@ -401,16 +405,21 @@ class RegionalFlexOptimizer:
         uc_params = self.config.get('uc_params', {})
         for region in self.regions:
             for tech in self.dispatch_techs:
-                tech_cost = costs.get(tech, default_costs[tech])
+                base_cost = costs.get(tech, default_costs[tech])
+                emission_factor = self.emission_factors.get(tech, 0.0)
+                tech_cost = base_cost + emission_factor * self.co2_price
                 
-                # DEBUG: Original tech cost before regional adjustment
+                # DEBUG: Show cost including CO2 component
                 if tech == "biofuel" or tech.startswith("thermal"):
-                    print(f"[DEBUG] {region} - {tech} - Initial Cost: {tech_cost}")
+                    print(
+                        f"[DEBUG] {region} - {tech} - Base Cost: {base_cost}, "
+                        f"Emission factor: {emission_factor}, Cost with CO2: {tech_cost}"
+                    )
 
                 # éventuel coût régional spécifique
                 if region in getattr(self, "regional_costs", {}) and \
                    tech   in self.regional_costs[region]:
-                    tech_cost = self.regional_costs[region][tech]
+                    tech_cost = self.regional_costs[region][tech] + emission_factor * self.co2_price
                     
                     # DEBUG: If a regional cost was applied
                     if tech == "biofuel" or tech.startswith("thermal"):
@@ -509,9 +518,11 @@ class RegionalFlexOptimizer:
         tech_costs = {}
         for region in self.regions:
             for tech in self.dispatch_techs:
-                tech_cost = costs.get(tech, default_costs[tech])
+                base_cost = costs.get(tech, default_costs[tech])
+                emission_factor = self.emission_factors.get(tech, 0.0)
+                tech_cost = base_cost + emission_factor * self.co2_price
                 if region in getattr(self, "regional_costs", {}) and tech in self.regional_costs[region]:
-                    tech_cost = self.regional_costs[region][tech]
+                    tech_cost = self.regional_costs[region][tech] + emission_factor * self.co2_price
                 tech_costs[(tech, region)] = tech_cost
                 
         # Sort by cost and print
