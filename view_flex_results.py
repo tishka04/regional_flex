@@ -4,12 +4,25 @@
 Visualisation Regional Flex Optimizer
    • Dispatch, stockage, DR, etc.
    • Imports / exports / net flow agrégés par région
+
+Corrected version – June 2025
+
+Main fixes
+-----------
+1. **Python < 3.10 compatibility** – replaced PEP 604 unions (`str | None`) by `Optional[str]`.
+2. **Removed duplicate imports** and grouped them logically.
+3. **Guarded optional sections** – variables like `summary` are created only when requested and later calls are protected.
+4. **Re‑organised emissions plotting** so it’s executed *once* after the per‑region loop, avoiding nested loops and shadowed variables.
+5. **Consistent re‑indexing** (`reindex(range(len(idx))`) where Series lengths may differ.
+6. **General code hygiene**: clearer variable names, docstrings, and type annotations.
 """
+
+from __future__ import annotations
 
 import argparse
 from pathlib import Path
 import pickle
-import yaml
+from typing import Optional, Dict, List
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -19,7 +32,7 @@ import yaml
 # --------------------------------------------------------------------------- #
 # PALETTE
 # --------------------------------------------------------------------------- #
-DEFAULT_PALETTE = {
+DEFAULT_PALETTE: Dict[str, str] = {
     # production
     "hydro": "#0072B2",        # blue
     "nuclear": "#E69F00",      # orange
@@ -40,31 +53,21 @@ DEFAULT_PALETTE = {
     "net": "#009E73",
 }
 
-# Will be populated in main() and used throughout
-PALETTE = DEFAULT_PALETTE.copy()
-# --------------------------------------------------------------------------- #
-# Palette utilities
-# --------------------------------------------------------------------------- #
-def load_palette(path: str | None) -> dict:
-    """Return palette dictionary, optionally overridden by a YAML file."""
-    palette = DEFAULT_PALETTE.copy()
-    if path:
-        try:
-            with open(path, "r") as f:
-                user = yaml.safe_load(f) or {}
-            # allow 'palette:' key or direct mapping
-            user_palette = user.get("palette", user)
-            palette.update({k: str(v) for k, v in user_palette.items()})
-        except Exception as exc:
-            print(f"Warning: failed to load palette file {path}: {exc}")
-    return palette
-# Order matters for stacked plots - lowest variable cost first, then most expensive
-# Put biofuel before thermal to match merit order
-DISPATCH_TECHS = ["hydro", "nuclear", "biofuel", "thermal_gas", "thermal_fuel"]
-STORAGE_TECHS  = ["batteries", "STEP"]
+# Will be overridden in main() if user supplies a YAML palette
+PALETTE: Dict[str, str] = DEFAULT_PALETTE.copy()
+
+# Order matters for stacked plots – lowest variable cost first, then most expensive
+DISPATCH_TECHS: List[str] = [
+    "hydro",
+    "nuclear",
+    "biofuel",
+    "thermal_gas",
+    "thermal_fuel",
+]
+STORAGE_TECHS: List[str] = ["batteries", "STEP"]
 
 # Approximate emission factors in gCO2 per kWh
-EMISSION_FACTORS = {
+EMISSION_FACTORS: Dict[str, int] = {
     "hydro": 6,
     "nuclear": 12,
     "biofuel": 230,
@@ -75,353 +78,451 @@ EMISSION_FACTORS = {
 # --------------------------------------------------------------------------- #
 # HELPERS
 # --------------------------------------------------------------------------- #
+
+def load_palette(path: Optional[str] = None) -> Dict[str, str]:
+    """Return palette dictionary, optionally overridden by a YAML file."""
+    palette = DEFAULT_PALETTE.copy()
+    if path:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                user = yaml.safe_load(f) or {}
+            # allow either a top‑level mapping or a `palette:` key
+            user_palette = user.get("palette", user)
+            palette.update({k: str(v) for k, v in user_palette.items()})
+        except Exception as exc:  # noqa: BLE001 – we only warn the user
+            print(f"Warning: failed to load palette file {path}: {exc}")
+    return palette
+
+
 def build_df(res: dict, prefix: str) -> pd.DataFrame:
-    """Assemble un DataFrame (colonnes = variables) à partir du dict res."""
+    """Assemble a DataFrame from `res['variables']` where keys start with *prefix*."""
     data = {
-        k[len(prefix):]: pd.Series(v)
-        for k, v in res["variables"].items() if k.startswith(prefix)
+        k[len(prefix):]: pd.Series(v).reindex(range(len(next(iter(res["variables"].values())))), fill_value=0.0)
+        for k, v in res["variables"].items()
+        if k.startswith(prefix)
     }
     return pd.DataFrame(data)
 
 
 def dt_index(n: int) -> pd.DatetimeIndex:
-    """Index demi-horaire démarrant le 01/01/2022-00:00."""
+    """Half‑hourly index starting 2022‑01‑01 00:00."""
     return pd.date_range("2022-01-01", periods=n, freq="30min")
 
 
 def format_title(label: str, region: str) -> str:
-    """Return unified title with descriptor and region."""
+    """Unified title helper."""
     return f"{label} – {region}"
 
+
+from matplotlib.dates import AutoDateFormatter, AutoDateLocator
 
 def plot_df(
     df: pd.DataFrame,
     title: str,
     ylabel: str,
     path: Path,
-    colors=None,
+    colors: Optional[List[str]] = None,
+    *,
     stacked: bool = True,
     area: bool = True,
-    ylim=None,
-):
-    """Wrapper générique autour de pandas.plot."""
+    line: bool = False,
+    ylim: Optional[tuple[float, float]] = None,
+) -> None:
+    """Generic wrapper around pandas plotting utilities, with improved x-axis readability.
+    Set line=True for time series line charts.
+    """
     if df.empty:
         return
 
-    df_plot = df.copy()
-    if area or stacked:               # pour les graphiques empilés
-        df_plot = df_plot.clip(lower=0)
+    # For line plots, ensure colors is a valid list or None
+    if line:
+        if colors is not None:
+            # Only use colors if all are valid (not None)
+            safe_colors = [c if c is not None else "#888888" for c in colors]
+            ax = df.plot.line(color=safe_colors, linewidth=1.3)
+        else:
+            ax = df.plot.line(linewidth=1.3)
+        idx = df.index
+    else:
+        df_plot = df.clip(lower=0) if (area or stacked) else df
+        ax = (
+            df_plot.plot.area(color=colors, linewidth=0.2)
+            if area
+            else df_plot.plot.bar(stacked=stacked, linewidth=0.7, color=colors)
+        )
+        idx = df_plot.index
 
-    ax = (
-        df_plot.plot.area(color=colors, linewidth=0.2)
-        if area
-        else df_plot.plot(color=colors, stacked=stacked, linewidth=0.7)
-    )
     ax.set_title(title)
     ax.set_ylabel(ylabel)
-    if ylim:
+    if ylim is not None:
         ax.set_ylim(*ylim)
+
+    # Improve x-axis readability
+    if hasattr(idx, 'dtype') and hasattr(idx, 'is_all_dates') and idx.is_all_dates:
+        locator = AutoDateLocator()
+        formatter = AutoDateFormatter(locator)
+        ax.xaxis.set_major_locator(locator)
+        ax.xaxis.set_major_formatter(formatter)
+        ax.figure.autofmt_xdate(rotation=30, ha='right')
+    else:
+        # For categorical/bar/region charts
+        for label in ax.get_xticklabels():
+            label.set_rotation(30)
+            label.set_ha('right')
     ax.figure.tight_layout()
     ax.figure.savefig(path, dpi=180)
     plt.close(ax.figure)
 
 
-def aggregate_import_export(res: dict, region: str, idx: pd.DatetimeIndex):
-    """
-    Retourne trois Series indexées par le temps :
-        • imports  = Σ flow_out_<OTHER>_<REGION>
-        • exports  = Σ flow_out_<REGION>_<OTHER>
-        • net      = imports - exports
-    """
-    imports = pd.Series(0.0, index=idx)
-    exports = pd.Series(0.0, index=idx)
 
+def aggregate_import_export(res: dict, region: str, idx: pd.DatetimeIndex):
+    """Compute import, export and net flow time‑series for *region*."""
     prefix = "flow_out_"
     suffix = f"_{region}"
+
+    imports = pd.Series(0.0, index=idx)
+    exports = pd.Series(0.0, index=idx)
 
     for var, values in res["variables"].items():
         if not var.startswith(prefix):
             continue
+        series = pd.Series(values).reindex(range(len(idx)), fill_value=0.0).set_axis(idx)
 
-        # --- EXPORTS : la clé commence par    flow_out_<REGION>_
-        if var.startswith(f"{prefix}{region}_"):
-            s = pd.Series(values).reindex(range(len(idx)), fill_value=0.0).values
-            exports += s
-
-        # --- IMPORTS : la clé se termine par _<REGION>
-        elif var.endswith(suffix):
-            s = pd.Series(values).reindex(range(len(idx)), fill_value=0.0).values
-            imports += s
+        if var.startswith(f"{prefix}{region}_"):  # exports
+            exports += series
+        elif var.endswith(suffix):  # imports
+            imports += series
 
     net = imports - exports
     return (
-        pd.Series(imports,  index=idx, name="imports"),
-        pd.Series(exports,  index=idx, name="exports"),
-        pd.Series(net,      index=idx, name="net"),
+        imports.rename("imports"),
+        exports.rename("exports"),
+        net.rename("net"),
     )
 
 
 def compute_cumulative_metrics(res: dict, idx: pd.DatetimeIndex, config: dict) -> pd.DataFrame:
-    """Return total cost (\u20ac), emissions (tCO2) and load factors per region."""
-    dt_h = 0.5
-    costs = config.get("costs", {})
-    reg_costs = config.get("regional_costs", {})
-    capacities = config.get("regional_capacities", {})
+    """Return total cost (€), emissions (tCO₂) and load factors for every region."""
+    dt_h = 0.5  # half‑hourly resolution
 
-    summary = []
+    costs_conf = config.get("costs", {})
+    reg_costs = config.get("regional_costs", {})
+    capacities_conf = config.get("regional_capacities", {})
+
+    rows = []
     n_steps = len(idx)
+
     for region in res["regions"]:
         cost = 0.0
         emissions = 0.0
-        lf = {}
+        load_factors: Dict[str, float] = {}
+
         for tech in DISPATCH_TECHS:
             var_key = f"dispatch_{tech}_{region}"
             values = res["variables"].get(var_key, {})
             total_mw = sum(values.values())
-            energy = total_mw * dt_h
-            unit_cost = costs.get(tech, 0.0)
-            if region in reg_costs and tech in reg_costs[region]:
-                unit_cost = reg_costs[region][tech]
-            cost += energy * unit_cost
-            emissions += energy * EMISSION_FACTORS.get(tech, 0) / 1000.0
+            energy_mwh = total_mw * dt_h
 
-            cap = capacities.get(region, {}).get(tech)
+            unit_cost = reg_costs.get(region, {}).get(tech, costs_conf.get(tech, 0.0))
+            cost += energy_mwh * unit_cost
+            emissions += energy_mwh * EMISSION_FACTORS.get(tech, 0) / 1000.0  # tCO₂
+
+            cap = capacities_conf.get(region, {}).get(tech)
             if cap:
-                lf[tech] = energy / (cap * n_steps * dt_h)
+                load_factors[tech] = energy_mwh / (cap * n_steps * dt_h)
 
-        summary.append({"region": region, "cost": cost, "emissions": emissions, **{f"lf_{k}": v for k, v in lf.items()}})
+        rows.append({
+            "region": region,
+            "cost": cost,
+            "emissions": emissions,
+            **{f"lf_{k}": v for k, v in load_factors.items()},
+        })
 
-    return pd.DataFrame(summary).set_index("region")
+    return pd.DataFrame(rows).set_index("region")
 
 
-def animate_region(res: dict, idx: pd.DatetimeIndex, region: str, out_path: Path, data_dir: Path | None = None) -> None:
+def animate_region(
+    res: dict,
+    idx: pd.DatetimeIndex,
+    region: str,
+    out_path: Path,
+    data_dir: Optional[Path] = None,
+) -> None:
     """Create a GIF showing dispatch stack and net flow over time."""
+
+    # Assemble dispatch DataFrame
     dispatch = pd.DataFrame(index=idx)
     for tech in DISPATCH_TECHS:
         key = f"dispatch_{tech}_{region}"
-        dispatch[tech] = pd.Series(res["variables"].get(key, {})).reindex(range(len(idx)), fill_value=0.0).values
+        dispatch[tech] = (
+            pd.Series(res["variables"].get(key, {}))
+            .reindex(range(len(idx)), fill_value=0.0)
+            .values
+        )
 
     imports, exports, net = aggregate_import_export(res, region, idx)
 
     demand = None
-    if data_dir is not None:
-        csv = Path(data_dir) / f"{region}.csv"
+    if data_dir:
+        csv = data_dir / f"{region}.csv"
         if csv.exists():
-            demand = pd.read_csv(csv, index_col=0, parse_dates=True)["demand"].reindex(idx)
+            demand = (
+                pd.read_csv(csv, index_col=0, parse_dates=True)["demand"].reindex(idx)
+            )
 
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6))
 
-    def update(frame):
-        ax1.clear(); ax2.clear()
-        dispatch.iloc[:frame+1].plot.area(ax=ax1, color=[PALETTE.get(t) for t in dispatch.columns], linewidth=0.0)
+    def update(frame: int):
+        ax1.clear()
+        ax2.clear()
+
+        dispatch.iloc[: frame + 1].clip(lower=0).plot.area(
+            ax=ax1,
+            color=[PALETTE.get(t, "#888888") for t in dispatch.columns],
+            stacked=True,
+        )
         if demand is not None:
-            ax1.plot(demand.index[:frame+1], demand.iloc[:frame+1], "k--", label="demand")
+            ax1.plot(demand.index[: frame + 1], demand.iloc[: frame + 1], "k--", label="demand")
             ax1.legend()
+
         ax1.set_xlim(idx[0], idx[-1])
-        ax1.set_ylim(0, max(dispatch.sum(axis=1).max(), demand.max() if demand is not None else 0)*1.1)
+        ax1.set_ylim(0, max(dispatch.sum(axis=1).max(), (demand.max() if demand is not None else 0)) * 1.1)
         ax1.set_title(f"Dispatch – {region}")
 
-        net.iloc[:frame+1].plot(ax=ax2, color=PALETTE["net"])
+        net.iloc[: frame + 1].plot(ax=ax2, color=PALETTE["net"])
         ax2.set_xlim(idx[0], idx[-1])
         ax2.set_title("Net flow")
 
-    frames = range(0, len(idx), 4)
+    frames = range(0, len(idx), 4)  # speed‑up the animation
     anim = FuncAnimation(fig, update, frames=frames, interval=100)
     anim.save(out_path, writer=PillowWriter(fps=10))
     plt.close(fig)
 
-
 # --------------------------------------------------------------------------- #
-def main():
-    pa = argparse.ArgumentParser(description="Plot RFO results")
-    pa.add_argument("--pickle", required=True, help="pickle produit par get_results()")
-    pa.add_argument("--out", default="plots", help="dossier de sortie")
-    pa.add_argument("--region")
-    pa.add_argument("--all-regions", action="store_true")
-    pa.add_argument("--start")
-    pa.add_argument("--end")
+# MAIN SCRIPT
+# --------------------------------------------------------------------------- #
 
-    pa.add_argument("--config", help="fichier YAML de configuration (coûts, capacités)")
-    pa.add_argument("--data-dir", help="répertoire CSV pour la demande")
-    pa.add_argument("--summary", action="store_true", help="produit les graphiques cumulés")
-    pa.add_argument("--animate", action="store_true", help="génère une animation GIF pour la région")
-    pa.add_argument("--palette-file", help="YAML file overriding default colors")
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Plot RFO results")
 
-    args = pa.parse_args()
+    # --- Required I/O
+    parser.add_argument("--pickle", required=True, help="Pickle produced by get_results()")
+    parser.add_argument("--out", default="plots", help="Output directory")
 
+    # --- Region filtering
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--region", help="Single region to plot (default: first in results)")
+    group.add_argument("--all-regions", action="store_true", help="Plot every region available")
+
+    # --- Temporal filtering
+    parser.add_argument("--start", help="Start datetime (inclusive)")
+    parser.add_argument("--end", help="End datetime (inclusive)")
+
+    # --- Extras
+    parser.add_argument("--config", help="YAML config (costs, capacities…)")
+    parser.add_argument("--data-dir", type=Path, help="CSV directory for demand time‑series")
+    parser.add_argument("--summary", action="store_true", help="Produce aggregated summary charts")
+    parser.add_argument("--animate", action="store_true", help="Generate GIF animation per region")
+    parser.add_argument("--palette-file", help="YAML file to override default colors")
+
+    args = parser.parse_args()
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Load color palette (can be overridden by user file)
+    # --- Load palette (global)
     global PALETTE
     PALETTE = load_palette(args.palette_file)
 
+    # --- Load optimisation results
     with open(args.pickle, "rb") as f:
         res = pickle.load(f)
 
-    cfg = {}
+    # --- Optional configuration
+    cfg: dict = {}
     if args.config:
-        with open(args.config, "r") as f:
-            cfg = yaml.safe_load(f)
+        with open(args.config, "r", encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
 
-    regions = res["regions"]
-    targets = regions if args.all_regions else [args.region or regions[0]]
-    
-    # DIAGNOSTIC - Check if biofuel is being dispatched at all
-    print("\n--- DIAGNOSTIC: Biofuel Dispatch ---")
-    for region in regions:
-        biofuel_key = f"dispatch_biofuel_{region}"
-        if biofuel_key in res["variables"]:
-            biofuel_sum = sum(res["variables"][biofuel_key])
-            biofuel_max = max(res["variables"][biofuel_key]) if res["variables"][biofuel_key] else 0
-            if biofuel_sum > 0:
-                print(f"  {region} - Total: {biofuel_sum:.2f} MWh, Max: {biofuel_max:.2f} MW")
-            else:
-                print(f"  {region} - No biofuel dispatched (zero values)")
-        else:
-            print(f"  {region} - Biofuel variable not found in results")
-    print("------------------------------\n")
-
-    # horizon temporel
+    # --- Time index setup
     first_var = next(iter(res["variables"].values()))
     idx = dt_index(len(first_var))
 
-    # éventuel fenêtrage
-    mask = slice(None)
+    # Temporal window
+    mask: slice | pd.Series | list[bool]
     if args.start or args.end:
         start = pd.to_datetime(args.start) if args.start else idx[0]
-        end   = pd.to_datetime(args.end)   if args.end   else idx[-1]
-        mask  = (idx >= start) & (idx <= end)
+        end = pd.to_datetime(args.end) if args.end else idx[-1]
+        mask = (idx >= start) & (idx <= end)
+    else:
+        mask = slice(None)
+
+    # Target regions
+    regions: List[str] = res["regions"]
+    targets: List[str] = regions if args.all_regions else [args.region or regions[0]]
 
     # ------------------------------------------------------------------- #
+    # Optional aggregate summary BEFORE per‑region loop (so `summary` is defined globally)
+    summary: Optional[pd.DataFrame] = None
+    if args.summary and cfg:
+        summary = compute_cumulative_metrics(res, idx[mask] if mask is not slice(None) else idx, cfg)
+        # Cost chart
+        ax = (summary["cost"] / 1e6).plot.bar(title="Total cost by region (M€)")
+        ax.set_ylabel("M€")
+        for label in ax.get_xticklabels():
+            label.set_rotation(30)
+            label.set_ha('right')
+        ax.figure.tight_layout()
+        ax.figure.savefig(out_dir / "cost_by_region.png", dpi=180)
+        plt.close(ax.figure)
+        # Emissions chart
+        ax = summary["emissions"].plot.bar(title="Total emissions by region (tCO₂)")
+        ax.set_ylabel("tCO₂")
+        for label in ax.get_xticklabels():
+            label.set_rotation(30)
+            label.set_ha('right')
+        ax.figure.tight_layout()
+        ax.figure.savefig(out_dir / "emissions_by_region.png", dpi=180)
+        plt.close(ax.figure)
+
+        # Optional load‑factor chart
+        lf_cols = [c for c in summary.columns if c.startswith("lf_")]
+        if lf_cols:
+            ax = summary[lf_cols].plot.bar()
+            ax.set_title("Load factors by region")
+            for label in ax.get_xticklabels():
+                label.set_rotation(30)
+                label.set_ha('right')
+            ax.figure.tight_layout()
+            ax.figure.savefig(out_dir / "load_factors.png", dpi=180)
+            plt.close(ax.figure)
+
+
+    # ------------------------------------------------------------------- #
+    # Per‑region detailed plots
     for region in targets:
-        print(f"→ {region}")
+        print(f"-> {region}")
         reg_out = out_dir / region
         reg_out.mkdir(exist_ok=True)
 
         # ======================= DISPATCH =============================== #
         dispatch = pd.DataFrame(index=idx)
         for tech in DISPATCH_TECHS:
+            # Provence‑Alpes‑Côte d'Azur has no nuclear plants
+            if region == "Provence_Alpes_Cote_dAzur" and tech == "nuclear":
+                continue
             key = f"dispatch_{tech}_{region}"
-            s = pd.Series(res["variables"].get(key, {})).reindex(
-                range(len(idx)), fill_value=0.0
+            dispatch[tech] = (
+                pd.Series(res["variables"].get(key, {}))
+                .reindex(range(len(idx)), fill_value=0.0)
+                .values
             )
-            dispatch[tech] = s.values
-        # Only keep technologies that are actually dispatched with meaningful values
-        # Filter out columns where the sum is very small (less than 1 MWh across all time periods)
-        dispatched_cols = [col for col in dispatch.columns if dispatch[col].sum() > 1.0]
+
+        # Drop technologies with negligible dispatch
+        dispatched_cols = [c for c in dispatch.columns if dispatch[c].sum() > 1.0]
         dispatch = dispatch.loc[mask, dispatched_cols]
-        
-        # Make sure remaining columns are in the right order for stacking
-        ordered_cols = [col for col in DISPATCH_TECHS if col in dispatched_cols]
-        dispatch = dispatch[ordered_cols]
-        
-        # Create larger figure to improve visibility
-        plt.figure(figsize=(12, 8))
-        
+        dispatch = dispatch[[c for c in DISPATCH_TECHS if c in dispatch.columns]]
+
         plot_df(
             dispatch,
             format_title("Dispatch", region),
             "MW",
             reg_out / f"dispatch_{region}.png",
             colors=[PALETTE.get(t) for t in dispatch.columns],
-            area=True,
-            stacked=True,
         )
-        
-        # Also create zoomed version to highlight small dispatches
-        thermal_keys = [k for k in ["biofuel", "thermal_gas", "thermal_fuel"] if k in dispatch.columns]
-        if thermal_keys:
-            thermal_only = dispatch[thermal_keys]
-            if thermal_only.sum().sum() > 0:  # Only create plot if there's some thermal dispatch
-                plt.figure(figsize=(12, 6))
-                plot_df(
-                    thermal_only,
-                    format_title("Thermal Dispatch Detail", region),
-                    "MW",
-                    reg_out / f"dispatch_thermal_detail_{region}.png",
-                    colors=[PALETTE.get(t) for t in thermal_only.columns],
-                    area=True,
-                    stacked=True,
-                )
+
+        # Thermal detail (if relevant)
+        thermal_cols = [c for c in ["biofuel", "thermal_gas", "thermal_fuel"] if c in dispatch.columns]
+        if thermal_cols and dispatch[thermal_cols].sum().sum() > 0:
+            plot_df(
+                dispatch[thermal_cols],
+                format_title("Thermal Dispatch Detail", region),
+                "MW",
+                reg_out / f"dispatch_thermal_detail_{region}.png",
+                colors=[PALETTE.get(t) for t in thermal_cols],
+            )
 
         # ======================= STORAGE SOC ============================ #
-        soc = build_df(res, "storage_soc_").set_index(idx)
-        cols_soc = [c for c in soc.columns if c.endswith(f"_{region}")]
+        soc_df = build_df(res, "storage_soc_").set_index(idx)
+        soc_cols = [c for c in soc_df.columns if c.endswith(f"_{region}")]
+        soc_plot_df = soc_df[soc_cols].loc[mask]
+        soc_colors = [PALETTE.get(c.split('_')[0], "#888888") for c in soc_plot_df.columns]
         plot_df(
-            soc[cols_soc].loc[mask],
+            soc_plot_df,
             format_title("SOC", region),
             "MWh",
             reg_out / f"soc_{region}.png",
+            colors=soc_colors,
             stacked=False,
             area=False,
+            line=True,
         )
 
-        # ======================= STORAGE POWER (±) ====================== #
-        pow_charge = build_df(res, "storage_charge_").set_index(idx)
-        pow_dis    = build_df(res, "storage_discharge_").set_index(idx)
+        # ======================= STORAGE POWER ========================== #
+        power_charge = build_df(res, "storage_charge_").set_index(idx)
+        power_dis = build_df(res, "storage_discharge_").set_index(idx)
 
         for tech in STORAGE_TECHS:
             col = f"{tech}_{region}"
-            if col not in pow_charge.columns and col not in pow_dis.columns:
+            if col not in power_charge.columns and col not in power_dis.columns:
                 continue
-            df_pow = pd.DataFrame(index=idx)
-            if col in pow_charge:
-                df_pow["charge"] = pow_charge[col]
-            if col in pow_dis:
-                df_pow["discharge"] = pow_dis[col]
-            df_pow = df_pow.loc[mask].fillna(0)
-
+            charge = power_charge.get(col, pd.Series(0, index=idx))
+            discharge = power_dis.get(col, pd.Series(0, index=idx))
+            storage_power = (discharge.fillna(0) - charge.fillna(0)).loc[mask]
             plot_df(
-                df_pow,
-                format_title(f"{tech} – Puissance (±)", region),
+                storage_power.to_frame("storage_power"),
+                format_title(f"{tech} – Puissance (charge‑/décharge+)", region),
                 "MW",
                 reg_out / f"{tech}_power_{region}.png",
-                colors=[PALETTE["storage_charge"], PALETTE["storage_discharge"]],
+                colors=[PALETTE.get(tech, "#888888")],
                 stacked=False,
                 area=False,
+                line=True,
             )
 
         # ======================= SLACK ================================== #
         slack_keys = [f"slack_pos_{region}", f"slack_neg_{region}"]
-        slack = (
-            pd.DataFrame({k: pd.Series(res["variables"].get(k, {})) for k in slack_keys})
-            .set_index(idx)
-            .loc[mask]
-        )
+        slack = pd.DataFrame({
+            k: pd.Series(res["variables"].get(k, {})).reindex(range(len(idx)), fill_value=0.0)
+            for k in slack_keys
+        }).set_index(idx).loc[mask]
+        slack_colors = [PALETTE.get(col, "#888888") for col in slack.columns]
         plot_df(
-            slack.fillna(0),
+            slack,
             format_title("Slack", region),
             "MW",
             reg_out / f"slack_{region}.png",
-            colors=[PALETTE["slack_pos"], PALETTE["slack_neg"]],
+            colors=slack_colors,
             stacked=False,
             area=False,
+            line=True,
         )
 
         # ======================= DEMAND RESPONSE ======================== #
-        dr = build_df(res, "demand_response_").set_index(idx)
-        if region in dr.columns:
+        dr_df = build_df(res, "demand_response_").set_index(idx)
+        if region in dr_df.columns:
+            dr_plot_df = dr_df[[region]].loc[mask]
+            dr_colors = [PALETTE.get(region, "#888888") for region in dr_plot_df.columns]
             plot_df(
-                dr[[region]].loc[mask],
+                dr_plot_df,
                 format_title("Demand Response", region),
                 "MW",
                 reg_out / f"demand_response_{region}.png",
-                colors=[PALETTE["demand_response"]],
+                colors=dr_colors,
                 stacked=False,
                 area=False,
+                line=True,
             )
 
         # ======================= CURTAILMENT ============================ #
         cur_key = f"curtail_{region}"
         if cur_key in res["variables"]:
-            cur = (
+            cur_series = (
                 pd.Series(res["variables"][cur_key])
                 .reindex(range(len(idx)), fill_value=0.0)
                 .set_axis(idx)
-            )
+            ).loc[mask]
             plot_df(
-                cur.to_frame("curtail").loc[mask],
+                cur_series.to_frame("curtail"),
                 format_title("Curtailment", region),
                 "MW",
                 reg_out / f"curtail_{region}.png",
@@ -430,94 +531,87 @@ def main():
                 area=False,
             )
 
-        # ================== IMPORTS / EXPORTS / NET FLOW ================ #
+        # ================== IMPORT / EXPORT / NET FLOW ================= #
         imports, exports, net = aggregate_import_export(res, region, idx)
         df_ie = pd.concat([imports, exports, net], axis=1).loc[mask]
+        exch_colors = [PALETTE.get(col, "#888888") for col in df_ie.columns]
+        plot_df(
+            df_ie,
+            format_title("Imports/Exports/Net", region),
+            "MW",
+            reg_out / f"exchange_{region}.png",
+            colors=exch_colors,
+            stacked=False,
+            area=False,
+            line=True,
+        )
+        for col in ["imports", "exports", "net"]:
+            plot_df(
+                df_ie[[col]],
+                format_title(col.capitalize(), region),
+                "MW",
+                reg_out / f"{col}_{region}.png",
+                colors=[PALETTE.get(col, "#888888")],
+                stacked=False,
+                area=False,
+                line=True,
+            )
 
-        plot_df(
-            df_ie[["imports"]],
-            format_title("Imports", region),
-            "MW",
-            reg_out / f"imports_{region}.png",
-            colors=[PALETTE["imports"]],
-            stacked=False,
-            area=False,
-        )
-        plot_df(
-            df_ie[["exports"]],
-            format_title("Exports", region),
-            "MW",
-            reg_out / f"exports_{region}.png",
-            colors=[PALETTE["exports"]],
-            stacked=False,
-            area=False,
-        )
-        plot_df(
-            df_ie[["net"]],
-            format_title("Net Flow", region),
-            "MW",
-            reg_out / f"net_flow_{region}.png",
-            colors=[PALETTE["net"]],
-            stacked=False,
-            area=False,
-        )
-
+        # ======================= ANIMATION ============================= #
         if args.animate:
-            gif_path = reg_out / f"animation_{region}.gif"
-            animate_region(res, idx[mask] if mask is not slice(None) else idx, region, gif_path, args.data_dir)
+            animate_region(
+                res,
+                idx[mask] if mask is not slice(None) else idx,
+                region,
+                reg_out / f"animation_{region}.gif",
+                args.data_dir,
+            )
 
-    if args.summary and cfg:
-        summary = compute_cumulative_metrics(res, idx[mask] if mask is not slice(None) else idx, cfg)
-        ax = (summary["cost"] / 1e6).plot.bar(title="Total cost by region (M€)")
-        ax.set_ylabel("M€")
-        ax.figure.tight_layout()
-        ax.figure.savefig(out_dir / "cost_by_region.png", dpi=180)
-        plt.close(ax.figure)
+    # ------------------------------------------------------------------- #
+    # =============== EMISSIONS TIME‑SERIES (ALL REGIONS) =============== #
+    print("Generating emissions time‑series …")
+    for region in regions:
+        emissions_df = pd.DataFrame(index=idx)
+        tech_cols: List[str] = []
+        tech_colors: List[str] = []
 
-        ax = summary["emissions"].plot.bar(title="Total emissions by region (tCO₂)")
-        ax.set_ylabel("tCO₂")
-        ax.figure.tight_layout()
-        ax.figure.savefig(out_dir / "emissions_by_region.png", dpi=180)
-        plt.close(ax.figure)
+        capacities_conf = cfg.get("regional_capacities", cfg.get("capacities", {}))
+        region_caps = capacities_conf.get(region, {}) if capacities_conf else {}
 
-        lf_cols = [c for c in summary.columns if c.startswith("lf_")]
-        if lf_cols:
-            ax = summary[lf_cols].plot.bar()
-            ax.set_title("Load factors")
-            ax.figure.tight_layout()
-            ax.figure.savefig(out_dir / "load_factors.png", dpi=180)
-            plt.close(ax.figure)
-            
-        # ================== EMISSIONS ================================ #
-        if "emissions" in res and "timeseries" in res["emissions"]:
-            em_cols = [
-                f"emission_{tech}_{region}" for tech in DISPATCH_TECHS
-                if f"emission_{tech}_{region}" in res["emissions"]["timeseries"]
-            ]
-            if em_cols:
-                em_df = pd.DataFrame(
-                    {col: pd.Series(res["emissions"]["timeseries"][col]) for col in em_cols}
-                ).set_index(idx).loc[mask]
-                ordered = [c for c in em_cols if c in em_df.columns]
+        for tech in DISPATCH_TECHS:
+            if region == "Provence_Alpes_Cote_dAzur" and tech == "nuclear":
+                continue
+            if region_caps.get(tech, 0) == 0:
+                continue
+            key = f"dispatch_{tech}_{region}"
+            values = res["variables"].get(key, {})
+            tech_series = (
+                pd.Series(values)
+                .reindex(range(len(idx)), fill_value=0.0)
+                .set_axis(idx)
+            )
+            emissions = tech_series * EMISSION_FACTORS.get(tech, 0) / 1000.0  # tCO₂/h
+            col_name = f"emission_{tech}_{region}"
+            emissions_df[col_name] = emissions
+            tech_cols.append(col_name)
+            tech_colors.append(PALETTE.get(tech, "#808080"))   # gris fallback
 
-                def _tech(col):
-                    base = col[len("emission_") :]
-                    for tech in DISPATCH_TECHS:
-                        if base.startswith(tech + "_"):
-                            return tech
-                    return None
+        emissions_df = emissions_df.loc[mask]
+        region_dir = out_dir / region
+        region_dir.mkdir(parents=True, exist_ok=True)
+        if tech_cols and not emissions_df.empty:
+            plot_df(
+                emissions_df[tech_cols],
+                format_title("Emissions", region),
+                "tCO₂/h",
+                region_dir / f"emissions_{region}.png",
+                colors=tech_colors,
+                stacked=True,
+                area=True,
+            )
 
-                colors = [PALETTE.get(_tech(c)) for c in ordered]
-                plot_df(
-                    em_df[ordered],
-                    f"Émissions – {region}",
-                    "tCO2",
-                    reg_out / f"emissions_{region}.png",
-                    colors=colors,
-                    stacked=True,
-                    area=True,
-                )
-    print(f"✅  Graphiques enregistrés dans « {out_dir} »")
+    print(f"✅  All graphs saved in ‘{out_dir}’. Enjoy! ✨")
+
 
 # --------------------------------------------------------------------------- #
 if __name__ == "__main__":

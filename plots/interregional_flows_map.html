@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html>
+<head>
+    
+    <meta http-equiv="content-type" content="text/html; charset=UTF-8" />
+    
+        <script>
+            L_NO_TOUCH = false;
+            L_DISABLE_3D = false;
+        </script>
+    
+    <style>html, body {width: 100%;height: 100%;margin: 0;padding: 0;}</style>
+    <style>#map {position:absolute;top:0;bottom:0;right:0;left:0;}</style>
+    <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.js"></script>
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Leaflet.awesome-markers/2.0.2/leaflet.awesome-markers.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.css"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.2/dist/css/bootstrap.min.css"/>
+    <link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.0/css/bootstrap.min.css"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.2.0/css/all.min.css"/>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/Leaflet.awesome-markers/2.0.2/leaflet.awesome-markers.css"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/python-visualization/folium/folium/templates/leaflet.awesome.rotate.min.css"/>
+    
+            <meta name="viewport" content="width=device-width,
+                initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+            <style>
+                #map_d7a3c87065c0269c9ac5e66389c0e8c7 {
+                    position: relative;
+                    width: 100.0%;
+                    height: 100.0%;
+                    left: 0.0%;
+                    top: 0.0%;
+                }
+                .leaflet-container { font-size: 1rem; }
+            </style>
+        
+</head>
+<body>
+    
+    
+            <div class="folium-map" id="map_d7a3c87065c0269c9ac5e66389c0e8c7" ></div>
+        
+</body>
+<script>
+    
+    
+            var map_d7a3c87065c0269c9ac5e66389c0e8c7 = L.map(
+                "map_d7a3c87065c0269c9ac5e66389c0e8c7",
+                {
+                    center: [46.2, 2.2],
+                    crs: L.CRS.EPSG3857,
+                    zoom: 6,
+                    zoomControl: true,
+                    preferCanvas: false,
+                }
+            );
+
+            
+
+        
+    
+            var tile_layer_3480116e67fc01747c1b5a66d49a252b = L.tileLayer(
+                "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+                {"attribution": "\u0026copy; \u003ca href=\"https://www.openstreetmap.org/copyright\"\u003eOpenStreetMap\u003c/a\u003e contributors \u0026copy; \u003ca href=\"https://carto.com/attributions\"\u003eCARTO\u003c/a\u003e", "detectRetina": false, "maxNativeZoom": 20, "maxZoom": 20, "minZoom": 0, "noWrap": false, "opacity": 1, "subdomains": "abcd", "tms": false}
+            );
+        
+    
+            tile_layer_3480116e67fc01747c1b5a66d49a252b.addTo(map_d7a3c87065c0269c9ac5e66389c0e8c7);
+        
+    
+            var circle_marker_0d6ff746f08bcb6e5ee4cb3f55acbb06 = L.circleMarker(
+                [45.75, 4.85],
+                {"bubblingMouseEvents": true, "color": "#3388ff", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "#3388ff", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 5, "stroke": true, "weight": 3}
+            ).addTo(map_d7a3c87065c0269c9ac5e66389c0e8c7);
+        
+    
+        var popup_127747410eb06e4ac38d30dd279a3b03 = L.popup({"maxWidth": "100%"});
+
+        
+            
+                var html_f5022b62f8ec2fad3664d1378606712b = $(`<div id="html_f5022b62f8ec2fad3664d1378606712b" style="width: 100.0%; height: 100.0%;">Auvergne_Rhone_Alpes</div>`)[0];
+                popup_127747410eb06e4ac38d30dd279a3b03.setContent(html_f5022b62f8ec2fad3664d1378606712b);
+            
+        
+
+        circle_marker_0d6ff746f08bcb6e5ee4cb3f55acbb06.bindPopup(popup_127747410eb06e4ac38d30dd279a3b03)
+        ;
+
+        
+    
+    
+            var circle_marker_bc1aab2232516b2eacd1eb3186350eac = L.circleMarker(
+                [44.84, -0.58],
+                {"bubblingMouseEvents": true, "color": "#3388ff", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "#3388ff", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 5, "stroke": true, "weight": 3}
+            ).addTo(map_d7a3c87065c0269c9ac5e66389c0e8c7);
+        
+    
+        var popup_056d03e4fb0afd210f6c12bb3c087d3a = L.popup({"maxWidth": "100%"});
+
+        
+            
+                var html_3aa3a797c368a7a87974df33045b8f18 = $(`<div id="html_3aa3a797c368a7a87974df33045b8f18" style="width: 100.0%; height: 100.0%;">Nouvelle_Aquitaine</div>`)[0];
+                popup_056d03e4fb0afd210f6c12bb3c087d3a.setContent(html_3aa3a797c368a7a87974df33045b8f18);
+            
+        
+
+        circle_marker_bc1aab2232516b2eacd1eb3186350eac.bindPopup(popup_056d03e4fb0afd210f6c12bb3c087d3a)
+        ;
+
+        
+    
+    
+            var circle_marker_c21a0c36a4b265b947c99dc35b5bbb37 = L.circleMarker(
+                [43.6, 3.88],
+                {"bubblingMouseEvents": true, "color": "#3388ff", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "#3388ff", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 5, "stroke": true, "weight": 3}
+            ).addTo(map_d7a3c87065c0269c9ac5e66389c0e8c7);
+        
+    
+        var popup_0c26e1861f8ec8ffac61a4c47e5f95ed = L.popup({"maxWidth": "100%"});
+
+        
+            
+                var html_5d7a561e9d07208829bfec4eef0a9746 = $(`<div id="html_5d7a561e9d07208829bfec4eef0a9746" style="width: 100.0%; height: 100.0%;">Occitanie</div>`)[0];
+                popup_0c26e1861f8ec8ffac61a4c47e5f95ed.setContent(html_5d7a561e9d07208829bfec4eef0a9746);
+            
+        
+
+        circle_marker_c21a0c36a4b265b947c99dc35b5bbb37.bindPopup(popup_0c26e1861f8ec8ffac61a4c47e5f95ed)
+        ;
+
+        
+    
+    
+            var circle_marker_4179d833a07a6dbe5132a932ff15aaf6 = L.circleMarker(
+                [43.3, 5.37],
+                {"bubblingMouseEvents": true, "color": "#3388ff", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "#3388ff", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 5, "stroke": true, "weight": 3}
+            ).addTo(map_d7a3c87065c0269c9ac5e66389c0e8c7);
+        
+    
+        var popup_5627d060300ef8749e084d9e983bee2d = L.popup({"maxWidth": "100%"});
+
+        
+            
+                var html_f59a43b849fe23bcc16a44d77faa5995 = $(`<div id="html_f59a43b849fe23bcc16a44d77faa5995" style="width: 100.0%; height: 100.0%;">Provence_Alpes_Cote_dAzur</div>`)[0];
+                popup_5627d060300ef8749e084d9e983bee2d.setContent(html_f59a43b849fe23bcc16a44d77faa5995);
+            
+        
+
+        circle_marker_4179d833a07a6dbe5132a932ff15aaf6.bindPopup(popup_5627d060300ef8749e084d9e983bee2d)
+        ;
+
+        
+    
+    
+            var poly_line_a93e87d2d0471e37378a15d3083864aa = L.polyline(
+                [[45.75, 4.85], [44.84, -0.58]],
+                {"bubblingMouseEvents": true, "color": "red", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "red", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 1.0, "smoothFactor": 1.0, "stroke": true, "weight": 1}
+            ).addTo(map_d7a3c87065c0269c9ac5e66389c0e8c7);
+        
+    
+            var poly_line_e6b9a649c5d8157d02b996740fed82d5 = L.polyline(
+                [[45.75, 4.85], [43.6, 3.88]],
+                {"bubblingMouseEvents": true, "color": "blue", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "blue", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 1.0, "smoothFactor": 1.0, "stroke": true, "weight": 1}
+            ).addTo(map_d7a3c87065c0269c9ac5e66389c0e8c7);
+        
+    
+            var poly_line_a9f29d51362a9284afc1ca362ad8cdd9 = L.polyline(
+                [[45.75, 4.85], [43.3, 5.37]],
+                {"bubblingMouseEvents": true, "color": "blue", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "blue", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 1.0, "smoothFactor": 1.0, "stroke": true, "weight": 5.0}
+            ).addTo(map_d7a3c87065c0269c9ac5e66389c0e8c7);
+        
+    
+            var poly_line_3433cdab81f9c9a8ef89c32eaf5ea608 = L.polyline(
+                [[44.84, -0.58], [43.6, 3.88]],
+                {"bubblingMouseEvents": true, "color": "red", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "red", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 1.0, "smoothFactor": 1.0, "stroke": true, "weight": 1}
+            ).addTo(map_d7a3c87065c0269c9ac5e66389c0e8c7);
+        
+    
+            var poly_line_adab366af2f03526a749ea1540c74c0f = L.polyline(
+                [[44.84, -0.58], [43.3, 5.37]],
+                {"bubblingMouseEvents": true, "color": "blue", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "blue", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 1.0, "smoothFactor": 1.0, "stroke": true, "weight": 1.130735269492058}
+            ).addTo(map_d7a3c87065c0269c9ac5e66389c0e8c7);
+        
+    
+            var poly_line_835045ce0fff2fd84428ce6357ba5507 = L.polyline(
+                [[43.6, 3.88], [43.3, 5.37]],
+                {"bubblingMouseEvents": true, "color": "blue", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "blue", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 1.0, "smoothFactor": 1.0, "stroke": true, "weight": 1.454989838686732}
+            ).addTo(map_d7a3c87065c0269c9ac5e66389c0e8c7);
+        
+</script>
+</html>

@@ -59,6 +59,44 @@ python run_regional_flex.py --config config/config_master.yaml \
     --out results/march.pkl
 ```
 
+---
+
+## 4. Visualizing Interregional Flows: `geo_flows.py`
+
+The `geo_flows.py` script generates interactive and graphical visualizations of interregional energy exchanges using the results of an optimization run.
+
+### What it does
+- Creates a **Sankey diagram** (`interregional_sankey.png`) of net energy flows between regions.
+- Generates an **interactive map** (`interregional_flows_map.html`) with arrows showing the direction and magnitude of flows using Folium/Leaflet.
+
+### Usage
+
+```bash
+python geo_flows.py --pickle <RESULTS_PICKLE> --out <OUTPUT_DIR>
+```
+
+- `--pickle` (required): Path to the results pickle file (e.g., `results/winter_weekday.pkl`)
+- `--out` (optional): Output directory for the plots (default: `plots`)
+
+### Example
+
+```bash
+python geo_flows.py --pickle results/winter_weekday.pkl --out plots_winter
+```
+
+This will create:
+- `plots_winter/interregional_sankey.png` — Sankey diagram of net flows
+- `plots_winter/interregional_flows_map.html` — Interactive HTML map of flows
+
+### Requirements
+- Requires `plotly`, `kaleido` (for PNG export), and `folium` (for maps). These are included in `requirements.txt`.
+
+### Notes
+- The map uses rough coordinates for French regions. You can adjust `REGION_COORDS` in `geo_flows.py` if needed.
+- The script assumes the results pickle contains the standard variable structure produced by the main optimizer.
+
+---
+
 Passing `--enable-curtailment` allows the solver to curtail renewable generation. Without it, curtailment variables are omitted and the optimisation enforces full use of available generation.
 
 A rolling-horizon scheme is implemented internally (two‑week windows) so even long horizons remain tractable.
