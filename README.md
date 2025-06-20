@@ -55,44 +55,6 @@ python run_regional_flex.py --config config/config_master.yaml --data-dir data/p
 python run_regional_flex.py --config config/config_master.yaml --data-dir data/processed --start 2022-03-01 --end 2022-03-07 --out results/march.pkl
 ```
 
----
-
-## 4. Visualizing Interregional Flows: `geo_flows.py`
-
-The `geo_flows.py` script generates interactive and graphical visualizations of interregional energy exchanges using the results of an optimization run.
-
-### What it does
-- Creates a **Sankey diagram** (`interregional_sankey.png`) of net energy flows between regions.
-- Generates an **interactive map** (`interregional_flows_map.html`) with arrows showing the direction and magnitude of flows using Folium/Leaflet.
-
-### Usage
-
-```bash
-python geo_flows.py --pickle <RESULTS_PICKLE> --out <OUTPUT_DIR>
-```
-
-- `--pickle` (required): Path to the results pickle file (e.g., `results/winter_weekday.pkl`)
-- `--out` (optional): Output directory for the plots (default: `plots`)
-
-### Example
-
-```bash
-python geo_flows.py --pickle results/winter_weekday.pkl --out plots_winter
-```
-
-This will create:
-- `plots_winter/interregional_sankey.png` — Sankey diagram of net flows
-- `plots_winter/interregional_flows_map.html` — Interactive HTML map of flows
-
-### Requirements
-- Requires `plotly`, `kaleido` (for PNG export), and `folium` (for maps). These are included in `requirements.txt`.
-
-### Notes
-- The map uses rough coordinates for French regions. You can adjust `REGION_COORDS` in `geo_flows.py` if needed.
-- The script assumes the results pickle contains the standard variable structure produced by the main optimizer.
-
----
-
 Passing `--enable-curtailment` allows the solver to curtail renewable generation. Without it, curtailment variables are omitted and the optimisation enforces full use of available generation.
 
 A rolling-horizon scheme is implemented internally (two‑week windows) so even long horizons remain tractable.
@@ -111,16 +73,21 @@ It produces stacked dispatch graphs, state of charge of storages, slack values, 
 Additional options produce cumulative summaries and animations:
 
 ```bash
-python view_flex_results.py --pickle results/full_year.pkl \
-    --all-regions --config config/config_master.yaml --summary --animate
+python view_flex_results.py --pickle results/full_year.pkl --all-regions --config config/config_master.yaml --out plots
+
+python view_flex_results.py --pickle results/winter_weekday.pkl --all-regions --config config/config_master.yaml  --out plots_winter --summary --animate
 ```
 
 `--summary` creates bar charts of total cost, emissions and load factors by region, while `--animate` generates a GIF illustrating dispatch and flows over time.
 
 For an interactive exploration of the output you can open `interactive_flex_dashboard.ipynb` in Jupyter:
 
+For additional charts and analysis, explore `check_results.ipynb` in Jupyter.
+
+Finally, to generate charts for the flows, use :
+
 ```bash
-jupyter notebook interactive_flex_dashboard.ipynb
+python geo_flows.py --pickle results/full_year.pkl --out plots
 ```
 
 ## 5. Streamlit application
