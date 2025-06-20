@@ -406,24 +406,12 @@ class RegionalFlexOptimizer:
         for region in self.regions:
             for tech in self.dispatch_techs:
                 base_cost = costs.get(tech, default_costs[tech])
-                emission_factor = self.emission_factors.get(tech, 0.0)
-                tech_cost = base_cost + emission_factor * self.co2_price
-                
-                # DEBUG: Show cost including CO2 component
-                if tech == "biofuel" or tech.startswith("thermal"):
-                    print(
-                        f"[DEBUG] {region} - {tech} - Base Cost: {base_cost}, "
-                        f"Emission factor: {emission_factor}, Cost with CO2: {tech_cost}"
-                    )
+                tech_cost = base_cost
 
                 # éventuel coût régional spécifique
                 if region in getattr(self, "regional_costs", {}) and \
                    tech   in self.regional_costs[region]:
-                    tech_cost = self.regional_costs[region][tech] + emission_factor * self.co2_price
-                    
-                    # DEBUG: If a regional cost was applied
-                    if tech == "biofuel" or tech.startswith("thermal"):
-                        print(f"[DEBUG] {region} - {tech} - Regional Cost Applied: {tech_cost}")
+                    tech_cost = self.regional_costs[region][tech]
 
                 var_key = f"dispatch_{tech}_{region}"
                 if var_key not in self.variables:
