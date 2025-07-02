@@ -141,6 +141,7 @@ def main():
     print(f"Window size: {window_size}, Stride: {stride}")
     print(f"Number of windows: {len(indices)}")
 
+    total_objective = 0  # Sum of all window objective values
     for win_idx, (start_idx, end_idx) in enumerate(indices):
         print(f"Solving window {win_idx+1}/{len(indices)}: steps {start_idx} to {end_idx-1}")
         # Slice data for this window
@@ -161,6 +162,10 @@ def main():
         nodal = opt.get_nodal_prices()
         duals_dict = {region: prices.to_dict() for region, prices in nodal.items()}
         results = opt.get_results(dual_variables=duals_dict)
+        # Accumulate objective value
+        window_obj = results.get('objective_value', 0)
+        if window_obj is not None:
+            total_objective += window_obj
         # Stitch variables
         if stitched_dispatch_techs is None:
             stitched_dispatch_techs = results.get('dispatch_techs', [])
@@ -201,7 +206,8 @@ def main():
         'variables': stitched_variables,
         'dispatch_techs': stitched_dispatch_techs,
         'regions': stitched_regions,
-        'dual_variables': stitched_duals
+        'dual_variables': stitched_duals,
+        'total_cost': total_objective  # Add the sum of all window objectives
     }
 
     # Calculate environmental indicators
@@ -223,10 +229,13 @@ def main():
                     validation_issues += 1
     
     if validation_issues == 0:
-        print("✓ All technology dispatch values are within capacity limits.")
+        print("[OK] All technology dispatch values are within capacity limits.")
     else:
-        print(f"⚠️ Found {validation_issues} capacity constraint violations.")
+        print(f"[WARNING] Found {validation_issues} capacity constraint violations.")
     
+    # Add total system cost to results for compatibility with sensitivity.py
+    if 'objective_value' in results and results['objective_value'] is not None:
+        results['total_cost'] = results['objective_value']
     # Save results
     pd.to_pickle(results, args.out)
     print(f'Results stored to {args.out}')

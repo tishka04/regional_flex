@@ -13,6 +13,7 @@ import time
 import uuid
 import yaml
 import logging
+import copy
 import numpy as np
 import pandas as pd
 from typing import Dict, List, Tuple, Optional, Union
@@ -84,8 +85,18 @@ class RegionalFlexOptimizer:
         self.config_path = config_path
 
         # Load configuration
+        with open('debug.log', 'a') as debug_f:
+            debug_f.write(f"DEBUG: Loading config from: {config_path}\n")
         with open(config_path, 'r') as f:
             self.config = yaml.safe_load(f)
+        # Debug: log demand_response section if it exists
+        with open('debug.log', 'a') as debug_f:
+            if 'demand_response' in self.config:
+                debug_f.write(f"DEBUG: Found demand_response section with regions: {list(self.config['demand_response'].keys())}\n")
+                for region, params in self.config['demand_response'].items():
+                    debug_f.write(f"DEBUG: Config loaded - {region}: max_shift={params.get('max_shift', 'NOT_SET')}\n")
+            else:
+                debug_f.write("DEBUG: No demand_response section found in config\n")
             
         # Model simplification flags
         self.use_simplified_model = False
@@ -100,15 +111,56 @@ class RegionalFlexOptimizer:
         # Load master configuration if available
         master_config_path = os.path.join(os.path.dirname(config_path), 'config_master.yaml')
         if os.path.exists(master_config_path):
+            with open('debug.log', 'a') as debug_f:
+                debug_f.write(f"DEBUG: Loading master config from: {master_config_path}\n")
             with open(master_config_path, 'r') as f:
                 self.master_config = yaml.safe_load(f)
+                # Debug: Check if master config has demand_response section
+                with open('debug.log', 'a') as debug_f:
+                    if 'demand_response' in self.master_config:
+                        debug_f.write(f"DEBUG: Master config has demand_response section: {self.master_config['demand_response']}\n")
+                    else:
+                        debug_f.write("DEBUG: Master config does NOT have demand_response section\n")
+            
                 # Merge master config with regular config, with master config taking precedence
                 for key, value in self.master_config.items():
+                    if key == 'demand_response':
+                        with open('debug.log', 'a') as debug_f:
+                            debug_f.write(f"DEBUG: Processing demand_response key in master config merge\n")
+                            debug_f.write(f"DEBUG: Before merge - self.config[demand_response]: {self.config.get('demand_response')}\n")
+                
                     if key not in self.config:
                         self.config[key] = value
+                        if key == 'demand_response':
+                            with open('debug.log', 'a') as debug_f:
+                                debug_f.write(f"DEBUG: Added demand_response from master config (key not in temp config)\n")
                     elif isinstance(value, dict) and isinstance(self.config.get(key), dict):
                         # Deep merge dictionaries
-                        self.config[key].update(value)
+                        if key == 'demand_response':
+                            with open('debug.log', 'a') as debug_f:
+                                debug_f.write(f"DEBUG: Deep merging demand_response section\n")
+                                debug_f.write(f"DEBUG: Temp config demand_response before merge: {self.config[key]}\n")
+                                debug_f.write(f"DEBUG: Master config demand_response to merge: {value}\n")
+                        
+                        # For demand_response, give precedence to temp config over master config
+                        if key == 'demand_response':
+                            # Merge in reverse - master provides defaults, temp config overrides
+                            master_values = copy.deepcopy(value)
+                            temp_values = copy.deepcopy(self.config[key])
+                            # Update master values with temp values (temp takes precedence)
+                            for region in temp_values:
+                                if region in master_values:
+                                    master_values[region].update(temp_values[region])
+                                else:
+                                    master_values[region] = temp_values[region]
+                            self.config[key] = master_values
+                        else:
+                            # For other sections, master config takes precedence (original behavior)
+                            self.config[key].update(value)
+                        
+                        if key == 'demand_response':
+                            with open('debug.log', 'a') as debug_f:
+                                debug_f.write(f"DEBUG: Temp config demand_response after merge: {self.config[key]}\n")
         
         # Store curtailment flag
         self.enable_curtailment = enable_curtailment
@@ -685,6 +737,8 @@ class RegionalFlexOptimizer:
             T (List): List of time periods
         """
         logger.info("Adding demand response and ramping constraints")
+        with open('debug.log', 'a') as f:
+            f.write("DEBUG: _add_dr_and_ramping_constraints called\n")
         
         # Get constraints from config
         constraints = self.config.get('constraints') or {}
@@ -694,23 +748,55 @@ class RegionalFlexOptimizer:
         if skip_ramping:
             logger.info("Skipping ramping constraints due to skip_ramping simplification")
         
+        # Debug: Log the entire demand_response section
+        with open('debug.log', 'a') as f:
+            dr_section = self.config.get('demand_response')
+            if dr_section:
+                f.write(f"DEBUG: demand_response section in config: {dr_section}\n")
+            else:
+                f.write("DEBUG: No demand_response section in self.config\n")
+    
         # 1. Add demand response constraints
         for region in self.regions:
             # Get demand response parameters from config for this region
-            dr_params = self.config.get('demand_response') or {}.get(region, {})
+            # Correct precedence: get demand_response dict, then get region-specific params
+            dr_params = (self.config.get('demand_response') or {}).get(region, {})
+            
+            # Debug: Log what dr_params was retrieved for this region
+            with open('debug.log', 'a') as f:
+                f.write(f"DEBUG: dr_params for {region}: {dr_params}\n")
             
             # Default DR parameters if not specified
             max_dr_shift = dr_params.get('max_shift', 0.0)  # % of demand
             max_dr_total = dr_params.get('max_total', 0.0)  # MWh
             dr_participation_rate = dr_params.get('participation_rate', 0.0)  # % of consumers
             
-            # Skip if no DR capability for this region
-            if max_dr_shift <= 0 or max_dr_total <= 0 or dr_participation_rate <= 0:
-                continue
+            # Debug: Log what DR parameters are being read
+            debug_msg = f"DEBUG: {region} DR params: max_shift={max_dr_shift}, max_total={max_dr_total}, participation_rate={dr_participation_rate}\n"
+            with open('debug.log', 'a') as f:
+                f.write(debug_msg)
             
             # Check if DR variables exist for this region
             dr_var_name = f"demand_response_{region}"
             if dr_var_name not in self.variables:
+                continue
+                
+            # If max_shift is 0, force DR to 0 instead of skipping constraints
+            if max_dr_shift <= 0 or max_dr_total <= 0 or dr_participation_rate <= 0:
+                debug_msg = f"DEBUG: Setting DR to zero for {region}: max_shift={max_dr_shift}, max_total={max_dr_total}, participation_rate={dr_participation_rate}\n"
+                with open('debug.log', 'a') as f:
+                    f.write(debug_msg)
+                constraint_count = 0
+                for t in T:
+                    if t in self.variables[dr_var_name]:
+                        self.model += (
+                            self.variables[dr_var_name][t] == 0,
+                            f"dr_zero_{region}_{t}_{uuid.uuid4().hex[:8]}"
+                        )
+                        constraint_count += 1
+                debug_msg2 = f"DEBUG: Added {constraint_count} zero constraints for {region}\n"
+                with open('debug.log', 'a') as f:
+                    f.write(debug_msg2)
                 continue
             
             # Add demand response constraints for each time period
@@ -730,7 +816,8 @@ class RegionalFlexOptimizer:
                     continue
                 
                 # Calculate maximum DR shift for this time period based on demand
-                max_shift = min(demand * max_dr_shift * dr_participation_rate / 100.0, max_dr_total)
+                # max_dr_shift is in %, dr_participation_rate is already decimal (1.0 = 100%)
+                max_shift = min(demand * max_dr_shift / 100.0 * dr_participation_rate, max_dr_total)
                 
                 # Add DR upper bound constraint (positive only)
                 self.model += (
@@ -1206,11 +1293,15 @@ class RegionalFlexOptimizer:
         """
         logger.info("Adding flexibility diversity constraints")
         
-        # Get minimum utilization percentages from config or use defaults
+        # Get minimum utilization percentages from config; default to 0 (disabled)
         constraints = self.config.get('constraints') or {}
-        min_storage_utilization = constraints.get('min_storage_utilization', 0.15)  # 15% minimum storage contribution
-        min_dr_utilization = constraints.get('min_dr_utilization', 0.10)  # 10% minimum demand response contribution
-        min_exchange_utilization = constraints.get('min_exchange_utilization', 0.15)  # 15% minimum exchange contribution
+        min_storage_utilization = constraints.get('min_storage_utilization', 0.0)
+        min_dr_utilization = constraints.get('min_dr_utilization', 0.0)
+        min_exchange_utilization = constraints.get('min_exchange_utilization', 0.0)
+        # If all mins are zero or negative, skip this whole block
+        if (min_storage_utilization <= 0) and (min_dr_utilization <= 0) and (min_exchange_utilization <= 0):
+            logger.info("Skipping flexibility diversity constraints (all mins <= 0)")
+            return
         
         # 1. Calculate total flexibility potential for each region
         for region in self.regions:
@@ -1562,7 +1653,7 @@ class RegionalFlexOptimizer:
         # Initialize results dictionary
         results = {
             'status': LpStatus[self.model.status],
-            'objective_value': self.model.objective.value,
+            'objective_value': self.model.objective.value(),
             'regions': self.regions,
             'dispatch_techs': self.dispatch_techs,
             'storage_techs': self.storage_techs,
