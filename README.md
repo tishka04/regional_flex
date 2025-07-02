@@ -1,6 +1,6 @@
 # Regional Flex Optimizer
 
-A lightweight dispatch model to analyse cross-region flexibility on the French power system. It computes the hourly dispatch that minimises both economic and environmental costs. Hydro, nuclear, gas, fuel and biofuel units are handled with optional curtailment and storage dynamics. The model also optimises inter-regional exchanges with transmission losses.
+A lightweight dispatch model to analyse cross-region flexibility on the French power system. It computes the half-hourly flexibility dispatch that minimises both economic and environmental costs. Hydro, nuclear, gas, fuel and biofuel units are handled with demand response and storage dynamics. The model also optimises inter-regional exchanges with transmission losses.
 
 The repository contains scripts to run the MILP optimisation, visualise results, and explore them through a Jupyter or Streamlit dashboard.
 
@@ -11,7 +11,8 @@ The solver is a mixed integer linear program written with [PuLP](https://pypi.or
 - generation technologies (nuclear, gas, fuel, biofuel, hydro)
 - optional curtailment of renewables
 - battery and pumped-hydro storage with state of charge dynamics
-- demand response and slack variables for unmet demand
+- demand response
+- slack variables for unmet demand
 - cross‑regional flows with transmission losses
 
 All parameters are defined in `config/config_master.yaml` and half‑hourly input data is read from `data/processed/<REGION>.csv`.
