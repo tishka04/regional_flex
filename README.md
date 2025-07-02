@@ -1,6 +1,6 @@
 # Regional Flex Optimizer
 
-A lightweight dispatch model to analyse cross-region flexibility on the French power system. It computes the half-hourly flexibility dispatch that minimises both economic and environmental costs. Hydro, nuclear, gas, fuel and biofuel units are handled with demand response and storage dynamics. The model also optimises inter-regional exchanges with transmission losses.
+A lightweight dispatch model to analyse cross-region flexibility on the French power system. It computes the half-hourly flexibility dispatch that minimises the total cost. Hydro, nuclear, gas, fuel and biofuel units are handled with demand response and storage dynamics. The model also optimises inter-regional exchanges with transmission losses.
 
 The repository contains scripts to run the MILP optimisation, visualise results, and explore them through a Jupyter or Streamlit dashboard.
 
