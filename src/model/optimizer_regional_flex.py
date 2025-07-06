@@ -256,12 +256,13 @@ class RegionalFlexOptimizer:
     # ------------------------------------------------------------
 
             
-    def build_model(self, regional_data: Dict[str, pd.DataFrame], time_periods=None):
+    def build_model(self, regional_data: Dict[str, pd.DataFrame], time_periods=None, initial_states=None):
         """Build the optimization model with variables, objective, and constraints.
         
         Args:
             regional_data (Dict[str, pd.DataFrame]): Dictionary mapping region names to data frames
             time_periods (Optional): Time periods to optimize for
+            initial_states (Optional[dict]): Dictionary of initial state variable values for the first time step
         """
         logger.info("Building regional flexibility optimization model")
         
@@ -275,7 +276,7 @@ class RegionalFlexOptimizer:
         total_steps = 7  # Variables, objective, and 5 constraint types
         with tqdm(total=total_steps, desc="Building optimization model") as pbar:
             # Initialize variables first
-            self._init_variables(regional_data, time_periods)
+            self._init_variables(regional_data, time_periods, initial_states=initial_states)
             pbar.update(1)
             
             # Add objective function
@@ -293,7 +294,8 @@ class RegionalFlexOptimizer:
     def _init_variables(
         self,
         data: Dict[str, pd.DataFrame],
-        time_periods: Optional[List[Union[int, pd.Timestamp]]]
+        time_periods: Optional[List[Union[int, pd.Timestamp]]],
+        initial_states: dict = None
     ) -> None:
         """
         Initialise toutes les variables du modèle :
@@ -363,6 +365,12 @@ class RegionalFlexOptimizer:
                 for prefix in ("storage_soc", "storage_charge", "storage_discharge"):
                     k = f"{prefix}_{st}_{region}"
                     self.variables[k] = {t: LpVariable(f"{k}_{t}", lowBound=0) for t in T}
+                    # State transfer: set initial value if provided
+                    if initial_states is not None and prefix == "storage_soc" and T:
+                        if k in initial_states:
+                            # Set the initial value for the first time step
+                            self.variables[k][T[0]].lowBound = initial_states[k]
+                            self.variables[k][T[0]].upBound = initial_states[k]
 
             # c) demand-response (positive only: reduction in demand)
             k = f"demand_response_{region}"
@@ -1207,7 +1215,7 @@ class RegionalFlexOptimizer:
                         continue
                     self.model += (
                         self.variables[f"storage_soc_{tech}_{region}"][t] <= max_capacity,
-                           f"stor_soc_max_{tech}_{region}_{t}_{uuid.uuid4().hex[:6]}"
+                        f"stor_soc_max_{tech}_{region}_{t}_{uuid.uuid4().hex[:6]}"
                     )
                     self.model += (
                         self.variables[f"storage_soc_{tech}_{region}"][t] >= 0,

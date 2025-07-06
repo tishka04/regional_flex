@@ -20,7 +20,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 import matplotlib.pyplot as plt
 import pulp
-from rolling_utils import rolling_horizon_indices
+from rolling_utils import rolling_horizon_indices, extract_final_states, prepare_initial_states
 from src.model.optimizer_regional_flex import RegionalFlexOptimizer
 from src.model import calculate_emissions
 
@@ -126,8 +126,8 @@ def main():
 
     # --- ROLLING HORIZON LOGIC ---
     nsteps = len(next(iter(data_int.values())))
-    window_size = 336  # 2 weeks of half-hours
-    stride = 336       # non-overlapping windows
+    window_size = 48   # 1 day of half-hours
+    stride = 48        # non-overlapping windows
     indices = rolling_horizon_indices(nsteps, window_size, stride)
 
     # Prepare containers for stitched results
@@ -142,6 +142,16 @@ def main():
     print(f"Number of windows: {len(indices)}")
 
     total_objective = 0  # Sum of all window objective values
+    # --- State transfer initialization ---
+    initial_states = None
+    # Build list of state variables to transfer (storage_soc_* for all storage techs/regions)
+    storage_techs = ['STEP', 'batteries']
+    state_vars = []
+    for st in storage_techs:
+        for region in regions:
+            k = f'storage_soc_{st}_{region}'
+            state_vars.append(k)
+
     for win_idx, (start_idx, end_idx) in enumerate(indices):
         print(f"Solving window {win_idx+1}/{len(indices)}: steps {start_idx} to {end_idx-1}")
         # Slice data for this window
@@ -151,7 +161,11 @@ def main():
         time_periods_local = list(range(end_idx - start_idx))
         # Build and solve model for this window
         opt = RegionalFlexOptimizer(args.config, enable_curtailment=args.enable_curtailment)
-        opt.build_model(data_win, time_periods=time_periods_local)
+        # Pass initial_states to build_model if available
+        if initial_states is not None:
+            opt.build_model(data_win, time_periods=time_periods_local, initial_states=initial_states)
+        else:
+            opt.build_model(data_win, time_periods=time_periods_local)
         opt.model.writeLP(f"debug_window_{win_idx+1}.lp")
         highs_solver = pulp.HiGHS_CMD(msg=True)
         status, _ = opt.solve(solver=highs_solver)
@@ -187,9 +201,12 @@ def main():
                         tech, region = var.replace('dispatch_', '').split('_', 1)
                         if tech in ['biofuel', 'thermal_gas', 'thermal_fuel']:
                             pass  # Debug placeholder if needed
-                    
                     # Store the value for this time step
                     stitched_variables[var][t_global] = val
+        # Extract final states for transfer to next window
+        initial_states = prepare_initial_states(
+            extract_final_states(results, state_vars, end_idx)
+        )
         
         # Stitch duals
         for region, dual_series in duals_dict.items():

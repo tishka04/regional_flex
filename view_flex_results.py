@@ -66,14 +66,17 @@ DISPATCH_TECHS: List[str] = [
 ]
 STORAGE_TECHS: List[str] = ["batteries", "STEP"]
 
-# Approximate emission factors in gCO2 per kWh
-EMISSION_FACTORS: Dict[str, int] = {
+# Default emission factors in gCO2 per kWh (used only if config is missing)
+DEFAULT_EMISSION_FACTORS: Dict[str, float] = {
     "hydro": 6,
     "nuclear": 12,
     "biofuel": 230,
     "thermal_gas": 400,
     "thermal_fuel": 750,
 }
+
+# Will be set in main() based on config
+EMISSION_FACTORS: Dict[str, float] = DEFAULT_EMISSION_FACTORS.copy()
 
 # --------------------------------------------------------------------------- #
 # HELPERS
@@ -208,6 +211,10 @@ def compute_cumulative_metrics(res: dict, idx: pd.DatetimeIndex, config: dict) -
     costs_conf = config.get("costs", {})
     reg_costs = config.get("regional_costs", {})
     capacities_conf = config.get("regional_capacities", {})
+    emission_factors_conf = config.get("emission_factors", {})
+
+    # Use config emission factors if available, else fallback
+    emission_factors = emission_factors_conf if emission_factors_conf else EMISSION_FACTORS
 
     rows = []
     n_steps = len(idx)
@@ -225,7 +232,7 @@ def compute_cumulative_metrics(res: dict, idx: pd.DatetimeIndex, config: dict) -
 
             unit_cost = reg_costs.get(region, {}).get(tech, costs_conf.get(tech, 0.0))
             cost += energy_mwh * unit_cost
-            emissions += energy_mwh * EMISSION_FACTORS.get(tech, 0) / 1000.0  # tCO₂
+            emissions += energy_mwh * emission_factors.get(tech, 0)  # Already tCO₂/MWh if from config
 
             cap = capacities_conf.get(region, {}).get(tech)
             if cap:
@@ -363,6 +370,15 @@ def main() -> None:
     # ------------------------------------------------------------------- #
     # Optional aggregate summary BEFORE per‑region loop (so `summary` is defined globally)
     summary: Optional[pd.DataFrame] = None
+
+    # Load emission factors from config if present
+    global EMISSION_FACTORS
+    emission_factors_conf = cfg.get("emission_factors", {})
+    if emission_factors_conf:
+        EMISSION_FACTORS = emission_factors_conf
+    else:
+        EMISSION_FACTORS = DEFAULT_EMISSION_FACTORS.copy()
+
     if args.summary and cfg:
         summary = compute_cumulative_metrics(res, idx[mask] if mask is not slice(None) else idx, cfg)
         # Cost chart
@@ -590,7 +606,11 @@ def main() -> None:
                 .reindex(range(len(idx)), fill_value=0.0)
                 .set_axis(idx)
             )
-            emissions = tech_series * EMISSION_FACTORS.get(tech, 0) / 1000.0  # tCO₂/h
+            # Use config emission factor (tCO2/MWh) if present, else fallback to default (convert gCO2/kWh to tCO2/MWh)
+            factor = EMISSION_FACTORS.get(tech, 0.0)
+            if factor > 10:  # If using default in gCO2/kWh, convert to tCO2/MWh
+                factor = factor / 1000.0
+            emissions = tech_series * factor  # tCO₂/h
             col_name = f"emission_{tech}_{region}"
             emissions_df[col_name] = emissions
             tech_cols.append(col_name)
