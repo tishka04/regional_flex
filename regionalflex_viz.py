@@ -1,6 +1,6 @@
 """RegionalFlex Result Visualization Script (v2)
 ====================================================
-Author: Théotime Coudray & ChatGPT
+Author: Théotime Coudray
 Date: 2025‑07‑06
 --------------------------------------------------
 This **v2** reinstates *Figure 7* (regional self‑sufficiency) and

@@ -108,7 +108,7 @@ Most parameters are defined in `config/config_master.yaml`:
 - `regional_capacities`: generation capacities by region and technology
 - `regional_storage`: power and energy ratings for batteries and pumped hydro
 - `costs` and `regional_costs`: variable and fixed costs
-- `co2_price` and `emission_factors`: parameters for the environmental cost
+- `emission_factors`: parameters for the environmental cost
 - `uc_params`: unit commitment constraints (start‑up costs, minimum up/down time...)
 - `regional_distances` and `loss_factor_per_km`: transmission distances and losses
 
