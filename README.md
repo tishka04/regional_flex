@@ -96,7 +96,7 @@ python geo_flows.py --pickle results/full_year.pkl --out plots
 To explore the results in a web interface you can run the Streamlit app. It reads scenario CSV files such as `full_year.csv` or `winter_weekday.csv` provided in this repository (or generated from your own simulations):
 
 ```bash
-streamlit run flex_app.py
+python -m streamlit run flex_app.py
 ```
 
 Select a scenario, region and date range in the sidebar to display production, storage and price plots.
