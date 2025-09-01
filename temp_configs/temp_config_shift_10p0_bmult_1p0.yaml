@@ -1,0 +1,310 @@
+constraints:
+  regional_transport_capacities:
+    Auvergne_Rhone_Alpes:
+      Nouvelle_Aquitaine: 500
+      Occitanie: 2750
+      Provence_Alpes_Cote_dAzur: 5000
+    Nouvelle_Aquitaine:
+      Auvergne_Rhone_Alpes: 500
+      Occitanie: 1750
+      Provence_Alpes_Cote_dAzur: 0
+    Occitanie:
+      Auvergne_Rhone_Alpes: 2750
+      Nouvelle_Aquitaine: 1750
+      Provence_Alpes_Cote_dAzur: 1500
+    Provence_Alpes_Cote_dAzur:
+      Auvergne_Rhone_Alpes: 5000
+      Nouvelle_Aquitaine: 0
+      Occitanie: 1500
+    max_slack: 10000.0
+    max_storage: 6500.0
+    min_dr_utilization: 0.0
+    min_exchange_utilization: 0.0
+    min_storage_utilization: 0.0
+    use_cyclical_storage: false
+costs:
+  biofuel: 50.0
+  co2_price: 80.0
+  curtailment_penalty: 10000.0
+  demand_response: 120.0
+  exchange: 35.0
+  hydro: 30.0
+  nuclear: 40.0
+  slack_penalty: 50000.0
+  storage_charge: 35.0
+  storage_discharge: 50.0
+  thermal_fuel: 90.0
+  thermal_gas: 80.0
+demand_response:
+  Auvergne_Rhone_Alpes:
+    max_shift: 10.0
+    max_total: 10000.0
+    participation_rate: 1.0
+  Nouvelle_Aquitaine:
+    max_shift: 10.0
+    max_total: 8000.0
+    participation_rate: 1.0
+  Occitanie:
+    max_shift: 10.0
+    max_total: 6000.0
+    participation_rate: 1.0
+  Provence_Alpes_Cote_dAzur:
+    max_shift: 10.0
+    max_total: 4000.0
+    participation_rate: 1.0
+emission_factors:
+  biofuel: 0.2
+  hydro: 0.0
+  nuclear: 0.0
+  thermal_fuel: 0.75
+  thermal_gas: 0.35
+loss_factor_per_km: 0.00025
+min_nuclear_capacity_fraction: 0.15
+ramp_emission_penalty: 0.05
+region_name_map:
+  Auvergne-Rhone-Alpes: Auvergne_Rhone_Alpes
+  Nouvelle-Aquitaine: Nouvelle_Aquitaine
+  Occitanie: Occitanie
+  Provence-Alpes-Cote-dAzur: Provence_Alpes_Cote_dAzur
+regional_capacities:
+  Auvergne_Rhone_Alpes:
+    biofuel: 190
+    hydro: 11403
+    nuclear: 13630
+    thermal_fuel: 300
+    thermal_gas: 700
+  Nouvelle_Aquitaine:
+    biofuel: 250
+    hydro: 2300
+    nuclear: 6500
+    thermal_fuel: 0
+    thermal_gas: 100
+  Occitanie:
+    biofuel: 171
+    hydro: 5296
+    nuclear: 2734
+    thermal_fuel: 100
+    thermal_gas: 500
+  Provence_Alpes_Cote_dAzur:
+    biofuel: 210
+    hydro: 3348
+    nuclear: 0
+    thermal_fuel: 760
+    thermal_gas: 2000
+regional_costs:
+  Auvergne_Rhone_Alpes:
+    biofuel: 70.0
+    hydro: 20.0
+    nuclear: 30.0
+    thermal_fuel: 85.0
+    thermal_gas: 75.0
+  Nouvelle_Aquitaine:
+    biofuel: 70.0
+    hydro: 20.0
+    nuclear: 30.0
+    thermal_fuel: 85.0
+    thermal_gas: 75.0
+  Occitanie:
+    biofuel: 70.0
+    hydro: 25.0
+    nuclear: 30.0
+    thermal_fuel: 85.0
+    thermal_gas: 75.0
+  Provence_Alpes_Cote_dAzur:
+    biofuel: 70.0
+    hydro: 20.0
+    nuclear: 30.0
+    thermal_fuel: 85.0
+    thermal_gas: 75.0
+regional_distances:
+  Auvergne_Rhone_Alpes:
+    Nouvelle_Aquitaine: 520
+    Occitanie: 240
+    Provence_Alpes_Cote_dAzur: 260
+  Nouvelle_Aquitaine:
+    Auvergne_Rhone_Alpes: 520
+    Occitanie: 310
+  Occitanie:
+    Auvergne_Rhone_Alpes: 240
+    Nouvelle_Aquitaine: 310
+    Provence_Alpes_Cote_dAzur: 190
+  Provence_Alpes_Cote_dAzur:
+    Auvergne_Rhone_Alpes: 260
+    Occitanie: 190
+regional_storage:
+  Auvergne_Rhone_Alpes:
+    STEP_puissance_MW: 3610.0
+    STEP_stockage_MWh: 61100.0
+    batteries_puissance_MW: 100.0
+    batteries_stockage_MWh: 200.0
+  Nouvelle_Aquitaine:
+    STEP_puissance_MW: 0.0
+    STEP_stockage_MWh: 0.0
+    batteries_puissance_MW: 700.0
+    batteries_stockage_MWh: 1400.0
+  Occitanie:
+    STEP_puissance_MW: 920.0
+    STEP_stockage_MWh: 38800.0
+    batteries_puissance_MW: 500.0
+    batteries_stockage_MWh: 1000.0
+  Provence_Alpes_Cote_dAzur:
+    STEP_puissance_MW: 0.0
+    STEP_stockage_MWh: 0.0
+    batteries_puissance_MW: 500.0
+    batteries_stockage_MWh: 1000.0
+regions:
+- Auvergne_Rhone_Alpes
+- Nouvelle_Aquitaine
+- Occitanie
+- Provence_Alpes_Cote_dAzur
+startup_emissions:
+  biofuel: 0.5
+  hydro: 0.0
+  nuclear: 10.0
+  thermal_fuel: 1.5
+  thermal_gas: 1.0
+storage_initial:
+  Auvergne_Rhone_Alpes:
+    STEP: 0.0
+    batteries: 0.0
+  Nouvelle_Aquitaine:
+    STEP: 0.0
+    batteries: 0.0
+  Occitanie:
+    STEP: 0.0
+    batteries: 0.0
+  Provence_Alpes_Cote_dAzur:
+    STEP: 0.0
+    batteries: 0.0
+storage_params:
+  STEP:
+    charge_efficiency: 0.9
+    discharge_efficiency: 0.85
+    max_power_ratio: 0.95
+  batteries:
+    charge_efficiency: 0.9
+    discharge_efficiency: 0.9
+    max_power_ratio: 0.9
+    self_discharge_per_hour: 0.192
+tech_name_map:
+  bioenergie: biofuel
+  hydraulique: hydro
+  nucleaire: nuclear
+  thermique_fioul: thermal_fuel
+  thermique_gaz: thermal_gas
+tech_params:
+  biofuel:
+    ramp_rate: 0.15
+  hydro:
+    ramp_rate: 0.9
+  nuclear:
+    ramp_rate: 0.05
+  thermal_fuel:
+    ramp_rate: 0.3
+  thermal_gas:
+    ramp_rate: 0.8
+uc_params:
+  Auvergne_Rhone_Alpes:
+    biofuel:
+      fixed_cost: 120.0
+      min_down_time: 2
+      min_up_time: 2
+      startup_cost: 250.0
+    hydro:
+      fixed_cost: 100.0
+      min_down_time: 2
+      min_up_time: 2
+      startup_cost: 200.0
+    nuclear:
+      fixed_cost: 200.0
+      min_down_time: 24
+      min_up_time: 24
+      startup_cost: 1000.0
+    thermal_fuel:
+      fixed_cost: 180.0
+      min_down_time: 6
+      min_up_time: 6
+      startup_cost: 600.0
+    thermal_gas:
+      fixed_cost: 150.0
+      min_down_time: 4
+      min_up_time: 4
+      startup_cost: 400.0
+  Nouvelle_Aquitaine:
+    biofuel:
+      fixed_cost: 120.0
+      min_down_time: 2
+      min_up_time: 2
+      startup_cost: 250.0
+    hydro:
+      fixed_cost: 100.0
+      min_down_time: 2
+      min_up_time: 2
+      startup_cost: 200.0
+    nuclear:
+      fixed_cost: 200.0
+      min_down_time: 24
+      min_up_time: 24
+      startup_cost: 1000.0
+    thermal_fuel:
+      fixed_cost: 180.0
+      min_down_time: 6
+      min_up_time: 6
+      startup_cost: 600.0
+    thermal_gas:
+      fixed_cost: 150.0
+      min_down_time: 4
+      min_up_time: 4
+      startup_cost: 400.0
+  Occitanie:
+    biofuel:
+      fixed_cost: 100.0
+      min_down_time: 2
+      min_up_time: 2
+      startup_cost: 200.0
+    hydro:
+      fixed_cost: 110.0
+      min_down_time: 2
+      min_up_time: 2
+      startup_cost: 210.0
+    nuclear:
+      fixed_cost: 210.0
+      min_down_time: 24
+      min_up_time: 24
+      startup_cost: 1100.0
+    thermal_fuel:
+      fixed_cost: 185.0
+      min_down_time: 6
+      min_up_time: 6
+      startup_cost: 610.0
+    thermal_gas:
+      fixed_cost: 155.0
+      min_down_time: 4
+      min_up_time: 4
+      startup_cost: 410.0
+  Provence_Alpes_Cote_dAzur:
+    biofuel:
+      fixed_cost: 100.0
+      min_down_time: 2
+      min_up_time: 2
+      startup_cost: 200.0
+    hydro:
+      fixed_cost: 105.0
+      min_down_time: 2
+      min_up_time: 2
+      startup_cost: 205.0
+    nuclear:
+      fixed_cost: 0.0
+      min_down_time: 0
+      min_up_time: 0
+      startup_cost: 0.0
+    thermal_fuel:
+      fixed_cost: 182.0
+      min_down_time: 6
+      min_up_time: 6
+      startup_cost: 605.0
+    thermal_gas:
+      fixed_cost: 152.0
+      min_down_time: 4
+      min_up_time: 4
+      startup_cost: 405.0
