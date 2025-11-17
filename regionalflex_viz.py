@@ -167,6 +167,86 @@ def figure2_weekly_stack(df: pd.DataFrame, outdir: Path):
     fig.savefig(outdir / "fig2_weekly_stack.pdf")
 
 # -----------------------------------------------------------------------------
+# Figure 2b – Weekly generation stack with renewables (solar & wind)
+# -----------------------------------------------------------------------------
+
+def figure2b_weekly_stack_with_renewables(df: pd.DataFrame, renewable_data_path: Path, outdir: Path):
+    """
+    Create weekly generation stack including renewable sources (solar and wind)
+    from the multi_region_data.csv file.
+    """
+    # Load renewable data
+    try:
+        df_renewable = pd.read_csv(renewable_data_path, sep=';')
+        # Convert timestamp to datetime
+        df_renewable['timestamp'] = pd.to_datetime(df_renewable['timestamp'], format='%d/%m/%Y %H:%M')
+    except Exception as e:
+        print(f"Warning: Could not load renewable data from {renewable_data_path}: {e}")
+        return
+    
+    # Merge dispatch data with renewable data on timestamp
+    df_merged = pd.merge(
+        _to_datetime(df.copy()),
+        df_renewable,
+        on='timestamp',
+        how='inner'
+    )
+    
+    # Resample to weekly
+    df_week = _resample(df_merged, "W")
+    
+    # Calculate total solar and wind across all regions
+    solar_cols = [c for c in df_week.columns if '_solar_MW' in c]
+    wind_cols = [c for c in df_week.columns if '_wind_MW' in c]
+    
+    total_solar = df_week[solar_cols].sum(axis=1) if solar_cols else pd.Series(0, index=df_week.index)
+    total_wind = df_week[wind_cols].sum(axis=1) if wind_cols else pd.Series(0, index=df_week.index)
+    
+    # Create figure
+    fig, ax = plt.subplots(figsize=(10, 5))
+    bottom = np.zeros(len(df_week))
+    
+    # Define generation sources with renewables first
+    generation_sources = [
+        ("Solar", total_solar, "#FDB462"),      # Orange for solar
+        ("Wind", total_wind, "#80B1D3"),        # Light blue for wind
+        ("Hydro", None, None),                  # Will be extracted from TECH_PREFIXES
+        ("Nuclear", None, None),
+        ("Thermal gas", None, None),
+        ("Thermal fuel", None, None),
+        ("Biofuel", None, None),
+    ]
+    
+    # Plot solar and wind first
+    for label, series, color in generation_sources[:2]:
+        if series is not None and series.sum() > 0:
+            ax.fill_between(df_week[TIME_COL], bottom, bottom + series,
+                            label=label, step="mid", alpha=0.8, color=color)
+            bottom += series.values
+    
+    # Plot conventional generation sources
+    for tech_label, prefix, _ in TECH_PREFIXES:
+        cols = [c for c in df_week.columns if c.startswith(prefix)]
+        series = df_week[cols].sum(axis=1)
+        if series.sum() > 0:
+            ax.fill_between(df_week[TIME_COL], bottom, bottom + series,
+                            label=tech_label.replace("_", " ").capitalize(), 
+                            step="mid", alpha=0.8)
+            bottom += series.values
+    
+    ax.set_ylabel("Mean dispatch [MW]")
+    ax.set_xlabel("Date")
+    ax.set_title("Weekly generation stack with renewables (Solar & Wind)")
+    ax.legend(loc="upper right", ncol=3, fontsize=9)
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(outdir / "fig2b_weekly_stack_renewables.png", dpi=300)
+    fig.savefig(outdir / "fig2b_weekly_stack_renewables.pdf")
+    
+    print(f"  → Solar contribution: {total_solar.mean():.1f} MW (weekly average)")
+    print(f"  → Wind contribution: {total_wind.mean():.1f} MW (weekly average)")
+
+# -----------------------------------------------------------------------------
 # Figure 3 – DR vs. storage energy
 # -----------------------------------------------------------------------------
 

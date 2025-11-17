@@ -169,7 +169,6 @@ for batt_mult in battery_multipliers:
         plt.plot(xs, costs, marker='o')
         plt.xlabel('Max DR Shift (%)')
         plt.ylabel('Total System Cost')
-        plt.title(f'Total Cost vs. DR Shift (battery_mult={batt_mult})')
         plt.grid(True)
         plt.tight_layout()
         plt.savefig(f'plots/cost_vs_dr_shift_batt_{str(batt_mult).replace(".", "p")}.png')
