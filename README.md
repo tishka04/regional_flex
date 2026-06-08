@@ -576,5 +576,10 @@ python analyze_flexibility.py  # Uses full_year_2023.csv
 
 ## License
 
-MIT License © 2025 Théotime Coudray
+This project is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE).
+
+- **Non-commercial use**: Free for personal, educational, research, and non-profit use
+- **Commercial use**: Requires a separate commercial license. Contact the author for commercial licensing inquiries.
+
+Copyright © 2025 Théotime Coudray
 
