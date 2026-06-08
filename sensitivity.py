@@ -1,6 +1,8 @@
 import copy
+import matplotlib
 import yaml
 from src.model.optimizer_regional_flex import RegionalFlexOptimizer
+from run_regional_flex import resolve_regional_timeseries_path
 
 # Load baseline config
 with open('config/config_master.yaml', 'r') as f:
@@ -15,6 +17,9 @@ results = {}
 import subprocess
 import pickle
 import os
+
+DATA_SUFFIX = os.environ.get('REGIONAL_DATA_SUFFIX', '')
+matplotlib.use("Agg")
 
 # Ensure directories
 results_dir = 'results'
@@ -69,6 +74,8 @@ for max_shift in max_shift_values:
             '--preset', 'winter_weekday',
             '--out', out_pickle
         ]
+        if DATA_SUFFIX:
+            cmd.extend(['--data-suffix', DATA_SUFFIX])
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode == 0 and os.path.exists(out_pickle):
             with open(out_pickle, 'rb') as pf:
@@ -85,16 +92,11 @@ import pandas as pd
 # Helper: total demand energy for the study horizon (used to normalise DR)
 # ---------------------------------------------------------------------------
 
-def compute_total_demand_kwh(regions, data_dir, start_date, end_date):
+def compute_total_demand_kwh(regions, data_dir, start_date, end_date, data_suffix=''):
     """Load regional CSVs and compute total demand (kWh) in half-hourly data."""
     total_energy = 0.0
     for r in regions:
-        path = os.path.join(data_dir, f"{r}.csv")
-        if not os.path.exists(path):
-            # Provence file name edge-case with apostrophe
-            if "dAzur" in r:
-                alt = path.replace("dAzur.csv", "d'Azur.csv")
-                path = alt if os.path.exists(alt) else path
+        path = resolve_regional_timeseries_path(r, data_dir, data_suffix=data_suffix)
         df = pd.read_csv(path, parse_dates=[0], index_col=0)
         df = df.loc[start_date:end_date]
         # Half-hour timesteps → kWh = MW * 0.5 h * 1000
@@ -120,7 +122,7 @@ def extract_total_dr_utilization(res):
 # Pre-compute total demand energy (kWh) for normalisation
 winter_date = ('2022-01-18', '2022-01-18')  # matches winter_weekday preset
 regions = base_config['regions']
-TOTAL_DEMAND_KWH = compute_total_demand_kwh(regions, 'data/processed', *winter_date)
+TOTAL_DEMAND_KWH = compute_total_demand_kwh(regions, 'data/processed', *winter_date, data_suffix=DATA_SUFFIX)
 
 # Detailed diagnostic: examine all DR variables
 print("\n=== Results Summary ===")

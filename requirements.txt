@@ -11,4 +11,5 @@ streamlit==1.35.0
 plotly==5.22.0
 folium
 kaleido
+highspy==1.14.0
 

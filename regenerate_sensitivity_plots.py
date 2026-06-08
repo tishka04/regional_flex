@@ -2,9 +2,13 @@
 Regenerate sensitivity analysis plots from existing pickle files
 without rerunning the optimization.
 """
+import matplotlib
 import os
 import pickle
 import pandas as pd
+from run_regional_flex import resolve_regional_timeseries_path
+
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 # Configuration matching original sensitivity.py
@@ -12,6 +16,7 @@ max_shift_values = [0.0, 2.0, 5.0, 10.0]
 battery_multipliers = [0.0, 0.5, 1.0, 1.5, 2.0]
 results_dir = 'results'
 plots_dir = 'plots'
+DATA_SUFFIX = os.environ.get('REGIONAL_DATA_SUFFIX', '')
 
 # Load existing results from pickle files
 results = {}
@@ -39,14 +44,10 @@ def extract_total_dr_utilization(res):
                 total_dr_mwh += sum(v for v in vals.values() if v is not None) * 0.5
     return total_dr_mwh if total_dr_mwh > 0 else float('nan')
 
-def compute_total_demand_kwh(regions, data_dir, start_date, end_date):
+def compute_total_demand_kwh(regions, data_dir, start_date, end_date, data_suffix=''):
     total_energy = 0.0
     for r in regions:
-        path = os.path.join(data_dir, f"{r}.csv")
-        if not os.path.exists(path):
-            if "dAzur" in r:
-                alt = path.replace("dAzur.csv", "d'Azur.csv")
-                path = alt if os.path.exists(alt) else path
+        path = resolve_regional_timeseries_path(r, data_dir, data_suffix=data_suffix)
         df = pd.read_csv(path, parse_dates=[0], index_col=0)
         df = df.loc[start_date:end_date]
         total_energy += df['demand'].sum() * 0.5 * 1000
@@ -55,7 +56,7 @@ def compute_total_demand_kwh(regions, data_dir, start_date, end_date):
 # Compute total demand
 regions = ['Auvergne_Rhone_Alpes', 'Nouvelle_Aquitaine', 'Occitanie', 'Provence_Alpes_Cote_dAzur']
 winter_date = ('2022-01-18', '2022-01-18')
-TOTAL_DEMAND_KWH = compute_total_demand_kwh(regions, 'data/processed', *winter_date)
+TOTAL_DEMAND_KWH = compute_total_demand_kwh(regions, 'data/processed', *winter_date, data_suffix=DATA_SUFFIX)
 
 # Create plots directory
 os.makedirs(plots_dir, exist_ok=True)

@@ -1,0 +1,33 @@
+{
+  "start": "2023-01-18 00:00:00",
+  "end": "2023-01-18 23:59:59",
+  "data_suffix": "_2023",
+  "solver": "PULP_CBC_CMD",
+  "requested_threads": 4,
+  "n_windows": 1,
+  "n_steps": 48,
+  "window_size": 48,
+  "stride": 48,
+  "time_step_hours": 0.5,
+  "recovery_lookahead_steps": 0,
+  "data_load_seconds": 0.09943370008841157,
+  "build_seconds_sum": 0.1767466999590397,
+  "solve_seconds_sum_reported": 9.412876844406128,
+  "window_seconds_sum": 10.031991699943319,
+  "total_wallclock_seconds": 10.147179499967024,
+  "window_timings": [
+    {
+      "window": 1,
+      "start_idx": 0,
+      "end_idx": 48,
+      "commit_len": 48,
+      "build_seconds": 0.1767466999590397,
+      "solve_seconds_reported": 9.412876844406128,
+      "solve_wall_seconds": 9.514714099932462,
+      "results_seconds": 0.0010638999519869685,
+      "total_window_seconds": 10.031991699943319,
+      "status": 1,
+      "objective_value": 60138311.17651002
+    }
+  ]
+}

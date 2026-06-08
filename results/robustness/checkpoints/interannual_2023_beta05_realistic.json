@@ -1,0 +1,9 @@
+{
+  "alias_of": "baseline_2023_beta05_realistic",
+  "result_path": "C:\\Users\\coudr\\projects\\regional_flex\\results\\robustness\\baseline_2023_beta05_realistic.pkl",
+  "runtime_path": "C:\\Users\\coudr\\projects\\regional_flex\\results\\robustness\\baseline_2023_beta05_realistic_runtime.json",
+  "scenario": "interannual_2023_beta05_realistic",
+  "status": "alias",
+  "updated_at_utc": "2026-06-04T16:31:39.339318+00:00",
+  "year": 2023
+}

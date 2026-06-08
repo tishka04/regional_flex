@@ -1,0 +1,464 @@
+{
+  "regions": [
+    "Auvergne_Rhone_Alpes",
+    "Nouvelle_Aquitaine",
+    "Occitanie",
+    "Provence_Alpes_Cote_dAzur"
+  ],
+  "region_name_map": {
+    "Auvergne-Rhone-Alpes": "Auvergne_Rhone_Alpes",
+    "Auvergne-Rhône-Alpes": "Auvergne_Rhone_Alpes",
+    "Nouvelle-Aquitaine": "Nouvelle_Aquitaine",
+    "Occitanie": "Occitanie",
+    "Provence-Alpes-Cote-dAzur": "Provence_Alpes_Cote_dAzur",
+    "Provence-Alpes-Côte d'Azur": "Provence_Alpes_Cote_dAzur"
+  },
+  "tech_name_map": {
+    "hydraulique": "hydro",
+    "nucleaire": "nuclear",
+    "thermique_gaz": "thermal_gas",
+    "thermique_fioul": "thermal_fuel",
+    "bioenergie": "biofuel"
+  },
+  "uc_params": {
+    "Auvergne_Rhone_Alpes": {
+      "hydro": {
+        "fixed_cost": 100.0,
+        "startup_cost": 200.0,
+        "min_up_time": 2,
+        "min_down_time": 2
+      },
+      "nuclear": {
+        "fixed_cost": 200.0,
+        "startup_cost": 1000.0,
+        "min_up_time": 24,
+        "min_down_time": 24
+      },
+      "thermal_gas": {
+        "fixed_cost": 150.0,
+        "startup_cost": 400.0,
+        "min_up_time": 4,
+        "min_down_time": 4
+      },
+      "thermal_fuel": {
+        "fixed_cost": 180.0,
+        "startup_cost": 600.0,
+        "min_up_time": 6,
+        "min_down_time": 6
+      },
+      "biofuel": {
+        "fixed_cost": 120.0,
+        "startup_cost": 250.0,
+        "min_up_time": 2,
+        "min_down_time": 2
+      }
+    },
+    "Nouvelle_Aquitaine": {
+      "hydro": {
+        "fixed_cost": 100.0,
+        "startup_cost": 200.0,
+        "min_up_time": 2,
+        "min_down_time": 2
+      },
+      "nuclear": {
+        "fixed_cost": 200.0,
+        "startup_cost": 1000.0,
+        "min_up_time": 24,
+        "min_down_time": 24
+      },
+      "thermal_gas": {
+        "fixed_cost": 150.0,
+        "startup_cost": 400.0,
+        "min_up_time": 4,
+        "min_down_time": 4
+      },
+      "thermal_fuel": {
+        "fixed_cost": 180.0,
+        "startup_cost": 600.0,
+        "min_up_time": 6,
+        "min_down_time": 6
+      },
+      "biofuel": {
+        "fixed_cost": 120.0,
+        "startup_cost": 250.0,
+        "min_up_time": 2,
+        "min_down_time": 2
+      }
+    },
+    "Occitanie": {
+      "hydro": {
+        "fixed_cost": 110.0,
+        "startup_cost": 210.0,
+        "min_up_time": 2,
+        "min_down_time": 2
+      },
+      "nuclear": {
+        "fixed_cost": 210.0,
+        "startup_cost": 1100.0,
+        "min_up_time": 24,
+        "min_down_time": 24
+      },
+      "thermal_gas": {
+        "fixed_cost": 155.0,
+        "startup_cost": 410.0,
+        "min_up_time": 4,
+        "min_down_time": 4
+      },
+      "thermal_fuel": {
+        "fixed_cost": 185.0,
+        "startup_cost": 610.0,
+        "min_up_time": 6,
+        "min_down_time": 6
+      },
+      "biofuel": {
+        "fixed_cost": 100.0,
+        "startup_cost": 200.0,
+        "min_up_time": 2,
+        "min_down_time": 2
+      }
+    },
+    "Provence_Alpes_Cote_dAzur": {
+      "hydro": {
+        "fixed_cost": 105.0,
+        "startup_cost": 205.0,
+        "min_up_time": 2,
+        "min_down_time": 2
+      },
+      "nuclear": {
+        "fixed_cost": 0.0,
+        "startup_cost": 0.0,
+        "min_up_time": 0,
+        "min_down_time": 0
+      },
+      "thermal_gas": {
+        "fixed_cost": 152.0,
+        "startup_cost": 405.0,
+        "min_up_time": 4,
+        "min_down_time": 4
+      },
+      "thermal_fuel": {
+        "fixed_cost": 182.0,
+        "startup_cost": 605.0,
+        "min_up_time": 6,
+        "min_down_time": 6
+      },
+      "biofuel": {
+        "fixed_cost": 100.0,
+        "startup_cost": 200.0,
+        "min_up_time": 2,
+        "min_down_time": 2
+      }
+    }
+  },
+  "costs": {
+    "hydro": 30.0,
+    "nuclear": 40.0,
+    "biofuel": 50.0,
+    "thermal_gas": 80.0,
+    "thermal_fuel": 90.0,
+    "demand_response": 120.0,
+    "exchange": 35.0,
+    "storage_charge": 35.0,
+    "storage_discharge": 50.0,
+    "slack_penalty": 50000.0,
+    "curtailment_penalty": 10000.0,
+    "co2_price": 80.0
+  },
+  "emission_factors": {
+    "hydro": 0.0,
+    "nuclear": 0.0,
+    "biofuel": 0.2,
+    "thermal_gas": 0.35,
+    "thermal_fuel": 0.75
+  },
+  "startup_emissions": {
+    "hydro": 0.0,
+    "nuclear": 10.0,
+    "biofuel": 0.5,
+    "thermal_gas": 1.0,
+    "thermal_fuel": 1.5
+  },
+  "ramp_emission_penalty": 0.05,
+  "storage_params": {
+    "STEP": {
+      "charge_efficiency": 0.9,
+      "discharge_efficiency": 0.85,
+      "max_power_ratio": 0.95
+    },
+    "batteries": {
+      "charge_efficiency": 0.9,
+      "discharge_efficiency": 0.9,
+      "max_power_ratio": 0.9,
+      "self_discharge_per_hour": 0.192
+    }
+  },
+  "storage_initial": {
+    "Auvergne_Rhone_Alpes": {
+      "STEP": 0.0,
+      "batteries": 0.0
+    },
+    "Nouvelle_Aquitaine": {
+      "STEP": 0.0,
+      "batteries": 0.0
+    },
+    "Occitanie": {
+      "STEP": 0.0,
+      "batteries": 0.0
+    },
+    "Provence_Alpes_Cote_dAzur": {
+      "STEP": 0.0,
+      "batteries": 0.0
+    }
+  },
+  "demand_response": {
+    "Auvergne_Rhone_Alpes": {
+      "max_shift": 5,
+      "max_total": 10000.0,
+      "participation_rate": 1.0,
+      "recovery_beta": 0.0,
+      "recovery_horizon_hours": 24.0
+    },
+    "Nouvelle_Aquitaine": {
+      "max_shift": 5,
+      "max_total": 8000.0,
+      "participation_rate": 1.0,
+      "recovery_beta": 0.0,
+      "recovery_horizon_hours": 24.0
+    },
+    "Occitanie": {
+      "max_shift": 5,
+      "max_total": 6000.0,
+      "participation_rate": 1.0,
+      "recovery_beta": 0.0,
+      "recovery_horizon_hours": 24.0
+    },
+    "Provence_Alpes_Cote_dAzur": {
+      "max_shift": 5,
+      "max_total": 4000.0,
+      "participation_rate": 1.0,
+      "recovery_beta": 0.0,
+      "recovery_horizon_hours": 24.0
+    }
+  },
+  "tech_params": {
+    "hydro": {
+      "ramp_rate": 0.9
+    },
+    "nuclear": {
+      "ramp_rate": 0.05
+    },
+    "thermal_gas": {
+      "ramp_rate": 0.8
+    },
+    "thermal_fuel": {
+      "ramp_rate": 0.3
+    },
+    "biofuel": {
+      "ramp_rate": 0.15
+    }
+  },
+  "constraints": {
+    "regional_transport_capacities": {
+      "Auvergne_Rhone_Alpes": {
+        "Nouvelle_Aquitaine": 500,
+        "Occitanie": 2750,
+        "Provence_Alpes_Cote_dAzur": 5000
+      },
+      "Nouvelle_Aquitaine": {
+        "Auvergne_Rhone_Alpes": 500,
+        "Occitanie": 1750,
+        "Provence_Alpes_Cote_dAzur": 0
+      },
+      "Occitanie": {
+        "Auvergne_Rhone_Alpes": 2750,
+        "Nouvelle_Aquitaine": 1750,
+        "Provence_Alpes_Cote_dAzur": 1500
+      },
+      "Provence_Alpes_Cote_dAzur": {
+        "Auvergne_Rhone_Alpes": 5000,
+        "Occitanie": 1500,
+        "Nouvelle_Aquitaine": 0
+      }
+    },
+    "max_storage": 6500.0,
+    "max_slack": 10000.0,
+    "min_storage_utilization": 0.0,
+    "min_dr_utilization": 0.0,
+    "min_exchange_utilization": 0.0,
+    "use_cyclical_storage": false
+  },
+  "min_nuclear_capacity_fraction": 0.15,
+  "regional_costs": {
+    "Auvergne_Rhone_Alpes": {
+      "hydro": 20.0,
+      "nuclear": 30.0,
+      "thermal_gas": 75.0,
+      "thermal_fuel": 85.0,
+      "biofuel": 70.0
+    },
+    "Nouvelle_Aquitaine": {
+      "hydro": 20.0,
+      "nuclear": 30.0,
+      "thermal_gas": 75.0,
+      "thermal_fuel": 85.0,
+      "biofuel": 70.0
+    },
+    "Occitanie": {
+      "hydro": 25.0,
+      "nuclear": 30.0,
+      "thermal_gas": 75.0,
+      "thermal_fuel": 85.0,
+      "biofuel": 70.0
+    },
+    "Provence_Alpes_Cote_dAzur": {
+      "hydro": 20.0,
+      "nuclear": 30.0,
+      "thermal_gas": 75.0,
+      "thermal_fuel": 85.0,
+      "biofuel": 70.0
+    }
+  },
+  "loss_factor_per_km": 0.00025,
+  "regional_distances": {
+    "Auvergne_Rhone_Alpes": {
+      "Nouvelle_Aquitaine": 520,
+      "Occitanie": 240,
+      "Provence_Alpes_Cote_dAzur": 260
+    },
+    "Nouvelle_Aquitaine": {
+      "Auvergne_Rhone_Alpes": 520,
+      "Occitanie": 310
+    },
+    "Occitanie": {
+      "Auvergne_Rhone_Alpes": 240,
+      "Nouvelle_Aquitaine": 310,
+      "Provence_Alpes_Cote_dAzur": 190
+    },
+    "Provence_Alpes_Cote_dAzur": {
+      "Auvergne_Rhone_Alpes": 260,
+      "Occitanie": 190
+    }
+  },
+  "metadata": {
+    "source_file": "registre-national-installation-production-stockage-electricite-agrege_full_311223.csv",
+    "year": 2023,
+    "unit": "MW for power capacities; MWh for storage energy",
+    "aggregation_note": "puisMaxInstallee summed by region/filiere and divided by 1000. thermal_fuel = Fioul + Charbon because the optimizer has no separate coal technology. Solar, wind and other are provided in regional_variable_capacities but not included in dispatchable regional_capacities."
+  },
+  "regional_capacities": {
+    "Auvergne_Rhone_Alpes": {
+      "hydro": 11479.092,
+      "nuclear": 13570.0,
+      "thermal_gas": 929.916,
+      "thermal_fuel": 114.647,
+      "biofuel": 214.029
+    },
+    "Nouvelle_Aquitaine": {
+      "hydro": 2245.879,
+      "nuclear": 6630.0,
+      "thermal_gas": 470.278,
+      "thermal_fuel": 87.152,
+      "biofuel": 412.851
+    },
+    "Occitanie": {
+      "hydro": 5411.496,
+      "nuclear": 2620.0,
+      "thermal_gas": 185.53,
+      "thermal_fuel": 148.854,
+      "biofuel": 177.803
+    },
+    "Provence_Alpes_Cote_dAzur": {
+      "hydro": 3263.793,
+      "nuclear": 0.0,
+      "thermal_gas": 2363.179,
+      "thermal_fuel": 361.537,
+      "biofuel": 397.979
+    }
+  },
+  "regional_storage": {
+    "Auvergne_Rhone_Alpes": {
+      "batteries_puissance_MW": 74.781,
+      "batteries_stockage_MWh": 63.061,
+      "STEP_puissance_MW": 3305.98,
+      "STEP_stockage_MWh": 61100.0
+    },
+    "Nouvelle_Aquitaine": {
+      "batteries_puissance_MW": 179.354,
+      "batteries_stockage_MWh": 167.28,
+      "STEP_puissance_MW": 1.377,
+      "STEP_stockage_MWh": 0.0
+    },
+    "Occitanie": {
+      "batteries_puissance_MW": 52.928,
+      "batteries_stockage_MWh": 103.507,
+      "STEP_puissance_MW": 930.454,
+      "STEP_stockage_MWh": 38800.0
+    },
+    "Provence_Alpes_Cote_dAzur": {
+      "batteries_puissance_MW": 14.45,
+      "batteries_stockage_MWh": 32.184,
+      "STEP_puissance_MW": 0.09,
+      "STEP_stockage_MWh": 0.0
+    }
+  },
+  "regional_variable_capacities": {
+    "Auvergne_Rhone_Alpes": {
+      "solar": 2257.804,
+      "wind": 742.086,
+      "other": 7.931,
+      "non_hydro_storage_power": 74.781
+    },
+    "Nouvelle_Aquitaine": {
+      "solar": 4540.294,
+      "wind": 1891.625,
+      "other": 8.8,
+      "non_hydro_storage_power": 186.854
+    },
+    "Occitanie": {
+      "solar": 3712.625,
+      "wind": 1691.17,
+      "other": 4.342,
+      "non_hydro_storage_power": 52.928
+    },
+    "Provence_Alpes_Cote_dAzur": {
+      "solar": 2281.843,
+      "wind": 96.45,
+      "other": 11.945,
+      "non_hydro_storage_power": 14.45
+    }
+  },
+  "hydro_detail_capacities": {
+    "Auvergne_Rhone_Alpes": {
+      "run_of_river_MW": 3319.23,
+      "pondage_MW": 1515.243,
+      "reservoir_MW": 3328.784,
+      "pumped_storage_MW": 3305.98,
+      "hydrokinetic_MW": 0.26,
+      "other_hydro_MW": 0.0
+    },
+    "Nouvelle_Aquitaine": {
+      "run_of_river_MW": 420.699,
+      "pondage_MW": 1002.978,
+      "reservoir_MW": 817.609,
+      "pumped_storage_MW": 1.377,
+      "hydrokinetic_MW": 0.879,
+      "other_hydro_MW": 0.0
+    },
+    "Occitanie": {
+      "run_of_river_MW": 1359.175,
+      "pondage_MW": 762.34,
+      "reservoir_MW": 2344.74,
+      "pumped_storage_MW": 930.454,
+      "hydrokinetic_MW": 8.549,
+      "other_hydro_MW": 1.84
+    },
+    "Provence_Alpes_Cote_dAzur": {
+      "run_of_river_MW": 996.391,
+      "pondage_MW": 310.842,
+      "reservoir_MW": 1946.77,
+      "pumped_storage_MW": 0.09,
+      "hydrokinetic_MW": 5.923,
+      "other_hydro_MW": 0.0
+    }
+  }
+}

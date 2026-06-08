@@ -17,20 +17,26 @@ import argparse
 import yaml
 
 # Add the project root to the Python path
-project_root = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, project_root)
 
 def main():
     """Run the eco2mix data processing workflow."""
     parser = argparse.ArgumentParser(description='Process eco2mix data for regional flexibility analysis')
-    parser.add_argument('--config', type=str, default='config/config.yaml', 
+    parser.add_argument('--config', type=str, default='config/config_master.yaml', 
                         help='Path to configuration file')
-    parser.add_argument('--eco2mix', type=str, default='data/Raw/eco2mix-regional-cons-def.csv',
+    parser.add_argument('--eco2mix', type=str, default=None,
                         help='Path to eco2mix CSV file')
-    parser.add_argument('--output', type=str, default='data/processed',
+    parser.add_argument('--eco2mix-national', type=str, default=None,
+                        help='Path to national eco2mix CSV file used for RoR estimation')
+    parser.add_argument('--odre-register', type=str, default=None,
+                        help='Path to the ODRÉ production register used for RoR capacities')
+    parser.add_argument('--output', type=str, default='Data/processed',
                         help='Directory where processed data will be saved')
-    parser.add_argument('--year', type=int, default=2022,
+    parser.add_argument('--year', type=int, default=2023,
                         help='Year to filter data for')
+    parser.add_argument('--output-suffix', type=str, default='',
+                        help='Optional suffix added to the generated regional CSV files, e.g. _2023')
     parser.add_argument('--run-simulation', action='store_true',
                         help='Run a simulation after processing data')
     parser.add_argument('--time-period', type=str, default=None,
@@ -38,6 +44,16 @@ def main():
     parser.add_argument('--palette-file', type=str, default=None,
                         help='YAML file with custom plotting colors')
     args = parser.parse_args()
+
+    if args.eco2mix is None:
+        args.eco2mix = f"Data/Raw/eco2mix-regional-cons-def_{args.year}.csv"
+    if args.eco2mix_national is None:
+        args.eco2mix_national = f"Data/Raw/eco2mix-national-cons-def_{args.year}.csv"
+    if args.odre_register is None:
+        register_suffix = "311223" if args.year == 2023 else "311222"
+        args.odre_register = (
+            f"Data/Raw/registre-national-installation-production-stockage-electricite-agrege-{register_suffix}.csv"
+        )
     
     # Import the eco2mix processor module functions
     from src.utils.process_eco2mix_data import load_config, process_eco2mix_data, run_simulation
@@ -45,6 +61,8 @@ def main():
     print(f"Processing eco2mix data for {args.year} from {args.eco2mix}")
     print(f"Output directory: {args.output}")
     print(f"Configuration file: {args.config}")
+    if args.output_suffix:
+        print(f"Output suffix: {args.output_suffix}")
     
     # Create output directory if it doesn't exist
     os.makedirs(args.output, exist_ok=True)
@@ -57,7 +75,11 @@ def main():
     
     # Process eco2mix data
     data = process_eco2mix_data(args.eco2mix, args.output, config,
-                                year=args.year, palette_file=args.palette_file)
+                                year=args.year,
+                                palette_file=args.palette_file,
+                                eco2mix_national_file=args.eco2mix_national,
+                                odre_register_file=args.odre_register,
+                                output_suffix=args.output_suffix)
     
     if not data:
         print("Failed to process eco2mix data")

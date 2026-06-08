@@ -1,0 +1,39 @@
+{
+  "start": "2023-01-18 00:00:00",
+  "end": "2023-01-18 23:59:59",
+  "data_suffix": "_2023",
+  "config_path": "config\\regional_flex_config_2023.yaml",
+  "config_year": 2023,
+  "master_config_merge": false,
+  "recovery_beta_override": 0.5,
+  "ignore_hydro_flex": false,
+  "solver": "highs",
+  "solver_class": "HiGHS",
+  "requested_threads": 1,
+  "n_windows": 1,
+  "n_steps": 48,
+  "window_size": 48,
+  "stride": 48,
+  "time_step_hours": 0.5,
+  "recovery_lookahead_steps": 0,
+  "data_load_seconds": 0.09217269998043776,
+  "build_seconds_sum": 0.18207380000967532,
+  "solve_seconds_sum_reported": 3.8898448944091797,
+  "window_seconds_sum": 4.498668499989435,
+  "total_wallclock_seconds": 4.601964700035751,
+  "window_timings": [
+    {
+      "window": 1,
+      "start_idx": 0,
+      "end_idx": 48,
+      "commit_len": 48,
+      "build_seconds": 0.18207380000967532,
+      "solve_seconds_reported": 3.8898448944091797,
+      "solve_wall_seconds": 4.004290199954994,
+      "results_seconds": 0.0016060000052675605,
+      "total_window_seconds": 4.498668499989435,
+      "status": 1,
+      "objective_value": 47909355.99708341
+    }
+  ]
+}

@@ -75,11 +75,22 @@ class RegionalFlexOptimizer:
             print("No variable bound violations detected.")
         print("--- End Diagnostics ---\n")
 
-    def __init__(self, config_path: str, enable_curtailment: bool = False):
+    def __init__(
+        self,
+        config_path: str,
+        enable_curtailment: bool = False,
+        merge_master_config: bool = True,
+        recovery_beta_override: Optional[float] = None,
+        ignore_hydro_flex: bool = False,
+    ):
         """Initialize the regional flexibility optimizer.
         
         Args:
             config_path (str): Path to config file
+            merge_master_config (bool): If True, merge config_master.yaml from the same folder on top
+                of the provided file for backward compatibility.
+            recovery_beta_override (Optional[float]): Optional global override for DR recovery_beta.
+            ignore_hydro_flex (bool): If True, do not apply the hourly hydro_flex dispatch cap.
         """
         # Store config_path as an attribute
         self.config_path = config_path
@@ -108,62 +119,80 @@ class RegionalFlexOptimizer:
             "lp_relaxation": False  # Relax binary/integer variables to continuous (MILP → LP)
         }
         
-        # Load master configuration if available
-        master_config_path = os.path.join(os.path.dirname(config_path), 'config_master.yaml')
-        if os.path.exists(master_config_path):
-            with open('debug.log', 'a') as debug_f:
-                debug_f.write(f"DEBUG: Loading master config from: {master_config_path}\n")
-            with open(master_config_path, 'r') as f:
-                self.master_config = yaml.safe_load(f)
-                # Debug: Check if master config has demand_response section
+        self.master_config = {}
+        if merge_master_config:
+            # Load master configuration if available
+            master_config_path = os.path.join(os.path.dirname(config_path), 'config_master.yaml')
+            if os.path.exists(master_config_path):
                 with open('debug.log', 'a') as debug_f:
-                    if 'demand_response' in self.master_config:
-                        debug_f.write(f"DEBUG: Master config has demand_response section: {self.master_config['demand_response']}\n")
-                    else:
-                        debug_f.write("DEBUG: Master config does NOT have demand_response section\n")
-            
-                # Merge master config with regular config, with master config taking precedence
-                for key, value in self.master_config.items():
-                    if key == 'demand_response':
-                        with open('debug.log', 'a') as debug_f:
-                            debug_f.write(f"DEBUG: Processing demand_response key in master config merge\n")
-                            debug_f.write(f"DEBUG: Before merge - self.config[demand_response]: {self.config.get('demand_response')}\n")
-                
-                    if key not in self.config:
-                        self.config[key] = value
-                        if key == 'demand_response':
-                            with open('debug.log', 'a') as debug_f:
-                                debug_f.write(f"DEBUG: Added demand_response from master config (key not in temp config)\n")
-                    elif isinstance(value, dict) and isinstance(self.config.get(key), dict):
-                        # Deep merge dictionaries
-                        if key == 'demand_response':
-                            with open('debug.log', 'a') as debug_f:
-                                debug_f.write(f"DEBUG: Deep merging demand_response section\n")
-                                debug_f.write(f"DEBUG: Temp config demand_response before merge: {self.config[key]}\n")
-                                debug_f.write(f"DEBUG: Master config demand_response to merge: {value}\n")
-                        
-                        # For demand_response, give precedence to temp config over master config
-                        if key == 'demand_response':
-                            # Merge in reverse - master provides defaults, temp config overrides
-                            master_values = copy.deepcopy(value)
-                            temp_values = copy.deepcopy(self.config[key])
-                            # Update master values with temp values (temp takes precedence)
-                            for region in temp_values:
-                                if region in master_values:
-                                    master_values[region].update(temp_values[region])
-                                else:
-                                    master_values[region] = temp_values[region]
-                            self.config[key] = master_values
+                    debug_f.write(f"DEBUG: Loading master config from: {master_config_path}\n")
+                with open(master_config_path, 'r') as f:
+                    self.master_config = yaml.safe_load(f) or {}
+                    # Debug: Check if master config has demand_response section
+                    with open('debug.log', 'a') as debug_f:
+                        if 'demand_response' in self.master_config:
+                            debug_f.write(f"DEBUG: Master config has demand_response section: {self.master_config['demand_response']}\n")
                         else:
-                            # For other sections, master config takes precedence (original behavior)
-                            self.config[key].update(value)
-                        
+                            debug_f.write("DEBUG: Master config does NOT have demand_response section\n")
+                
+                    # Merge master config with regular config, with master config taking precedence
+                    for key, value in self.master_config.items():
                         if key == 'demand_response':
                             with open('debug.log', 'a') as debug_f:
-                                debug_f.write(f"DEBUG: Temp config demand_response after merge: {self.config[key]}\n")
+                                debug_f.write(f"DEBUG: Processing demand_response key in master config merge\n")
+                                debug_f.write(f"DEBUG: Before merge - self.config[demand_response]: {self.config.get('demand_response')}\n")
+                    
+                        if key not in self.config:
+                            self.config[key] = value
+                            if key == 'demand_response':
+                                with open('debug.log', 'a') as debug_f:
+                                    debug_f.write(f"DEBUG: Added demand_response from master config (key not in temp config)\n")
+                        elif isinstance(value, dict) and isinstance(self.config.get(key), dict):
+                            # Deep merge dictionaries
+                            if key == 'demand_response':
+                                with open('debug.log', 'a') as debug_f:
+                                    debug_f.write(f"DEBUG: Deep merging demand_response section\n")
+                                    debug_f.write(f"DEBUG: Temp config demand_response before merge: {self.config[key]}\n")
+                                    debug_f.write(f"DEBUG: Master config demand_response to merge: {value}\n")
+                            
+                            # For demand_response, give precedence to temp config over master config
+                            if key == 'demand_response':
+                                # Merge in reverse - master provides defaults, temp config overrides
+                                master_values = copy.deepcopy(value)
+                                temp_values = copy.deepcopy(self.config[key])
+                                # Update master values with temp values (temp takes precedence)
+                                for region in temp_values:
+                                    if region in master_values:
+                                        master_values[region].update(temp_values[region])
+                                    else:
+                                        master_values[region] = temp_values[region]
+                                self.config[key] = master_values
+                            else:
+                                # For other sections, master config takes precedence (original behavior)
+                                self.config[key].update(value)
+                            
+                            if key == 'demand_response':
+                                with open('debug.log', 'a') as debug_f:
+                                    debug_f.write(f"DEBUG: Temp config demand_response after merge: {self.config[key]}\n")
+        else:
+            with open('debug.log', 'a') as debug_f:
+                debug_f.write("DEBUG: Skipping master config merge per caller request\n")
         
         # Store curtailment flag
         self.enable_curtailment = enable_curtailment
+        self.ignore_hydro_flex = bool(ignore_hydro_flex)
+
+        if recovery_beta_override is not None:
+            try:
+                beta_value = float(recovery_beta_override)
+            except (TypeError, ValueError):
+                beta_value = None
+            if beta_value is not None:
+                dr_section = self.config.setdefault("demand_response", {})
+                for region in dr_section:
+                    dr_section[region]["recovery_beta"] = beta_value
+                with open('debug.log', 'a') as debug_f:
+                    debug_f.write(f"DEBUG: Applied recovery_beta override = {beta_value}\n")
 
         # Initialize model
         self.model = LpProblem("RegionalFlexModel", LpMinimize)
@@ -245,6 +274,9 @@ class RegionalFlexOptimizer:
         self.tech_capacities   = {_norm(r): caps for r, caps in self.tech_capacities.items()}
         self.regional_costs    = {_norm(r): c    for r, c    in self.regional_costs.items()}
         self.storage_capacities= {_norm(r): s    for r, s    in self.storage_capacities.items()}
+        self.time_step_hours = 0.5
+        self.max_recovery_horizon_steps = 0
+        self.initial_recovery_profile = {}
 
     # ------------------------------------------------------------
     def _loss(self, region_from, region_to) -> float:
@@ -255,7 +287,108 @@ class RegionalFlexOptimizer:
         return dist * self.config.get('loss_factor_per_km', 0.0)
     # ------------------------------------------------------------
 
-            
+    def _get_series_value(
+        self,
+        df: Optional[pd.DataFrame],
+        t: Union[int, pd.Timestamp],
+        columns: List[str],
+        default: Optional[float] = None,
+    ) -> Optional[float]:
+        """Return the first available numeric value among candidate columns."""
+        if df is None:
+            return default
+        if isinstance(t, int):
+            if t < 0 or t >= len(df):
+                return default
+            row = df.iloc[t]
+        else:
+            try:
+                row = df.loc[t]
+            except KeyError:
+                return default
+
+        for col in columns:
+            if col not in df.columns:
+                continue
+            value = row[col]
+            if pd.isna(value):
+                continue
+            return float(value)
+        return default
+
+    def _get_effective_load(self, df: Optional[pd.DataFrame], t: Union[int, pd.Timestamp]) -> float:
+        """Return the load used in the energy balance."""
+        value = self._get_series_value(df, t, ["residual_load", "consumption", "demand", "load"], default=0.0)
+        return float(value if value is not None else 0.0)
+
+    def _get_dr_reference_load(self, df: Optional[pd.DataFrame], t: Union[int, pd.Timestamp]) -> float:
+        """Return the load used to size demand-response limits."""
+        if df is None:
+            return 0.0
+        if "residual_load" in df.columns:
+            value = self._get_series_value(df, t, ["residual_load"], default=0.0)
+            return float(value if value is not None else 0.0)
+        value = self._get_series_value(df, t, ["consumption", "demand", "load"], default=0.0)
+        return float(value if value is not None else 0.0)
+
+    def _get_hydro_flex_limit(self, df: Optional[pd.DataFrame], t: Union[int, pd.Timestamp]) -> Optional[float]:
+        """Return the hourly upper bound for dispatchable hydro, if provided."""
+        value = self._get_series_value(df, t, ["hydro_flex"], default=None)
+        if value is None:
+            return None
+        return max(float(value), 0.0)
+
+    def _get_hydro_reservoir_cap(self, region: str) -> Optional[float]:
+        """Return the reservoir (lake) nameplate as a structural cap on flexible hydro."""
+        detail = (self.config.get("hydro_detail_capacities") or {}).get(region, {})
+        value = detail.get("reservoir_MW")
+        if value is None:
+            return None
+        return max(float(value), 0.0)
+
+    def _infer_time_step_hours(
+        self,
+        df: Optional[pd.DataFrame],
+        time_periods: Optional[List[Union[int, pd.Timestamp]]] = None,
+    ) -> float:
+        """Infer the model time step in hours from the dataframe index or time periods."""
+        if df is not None and len(df.index) > 1:
+            index = df.index
+            if isinstance(index, pd.DatetimeIndex):
+                delta = index[1] - index[0]
+                if pd.notna(delta) and delta.total_seconds() > 0:
+                    return delta.total_seconds() / 3600.0
+
+        if time_periods is not None and len(time_periods) > 1:
+            t0, t1 = time_periods[0], time_periods[1]
+            if isinstance(t0, pd.Timestamp) and isinstance(t1, pd.Timestamp):
+                delta = t1 - t0
+                if delta.total_seconds() > 0:
+                    return delta.total_seconds() / 3600.0
+
+        return self.time_step_hours or 0.5
+
+    def _get_region_recovery_settings(self, region: str) -> Tuple[float, int]:
+        """Return the recovery beta and horizon (in model time steps) for one region."""
+        dr_params = (self.config.get("demand_response") or {}).get(region, {})
+        recovery_beta = max(float(dr_params.get("recovery_beta", 0.0) or 0.0), 0.0)
+        recovery_horizon_hours = max(float(dr_params.get("recovery_horizon_hours", 24.0) or 0.0), 0.0)
+
+        if recovery_beta <= 0.0 or recovery_horizon_hours <= 0.0:
+            return 0.0, 0
+
+        horizon_steps = int(round(recovery_horizon_hours / max(self.time_step_hours, 1e-9)))
+        return recovery_beta, max(horizon_steps, 0)
+
+    def _get_initial_recovery_value(self, region: str, position: int) -> float:
+        """Return carried recovery that must occur at the given local position."""
+        profile = self.initial_recovery_profile.get(region, [])
+        if 0 <= position < len(profile):
+            value = profile[position]
+            if value is not None and not pd.isna(value):
+                return max(float(value), 0.0)
+        return 0.0
+
     def build_model(self, regional_data: Dict[str, pd.DataFrame], time_periods=None, initial_states=None):
         """Build the optimization model with variables, objective, and constraints.
         
@@ -271,7 +404,19 @@ class RegionalFlexOptimizer:
             # Use all time periods from the first region's data
             first_region = next(iter(regional_data.values()))
             time_periods = list(range(len(first_region)))
-        
+
+        first_region_df = next(iter(regional_data.values()), None)
+        self.time_step_hours = self._infer_time_step_hours(first_region_df, time_periods)
+
+        if initial_states:
+            self.initial_recovery_profile = copy.deepcopy(initial_states.get("__recovery_profile__", {}))
+        else:
+            self.initial_recovery_profile = {}
+        self.max_recovery_horizon_steps = max(
+            (self._get_region_recovery_settings(region)[1] for region in self.regions),
+            default=0,
+        )
+
         # Initialize progress bar for model building
         total_steps = 7  # Variables, objective, and 5 constraint types
         with tqdm(total=total_steps, desc="Building optimization model") as pbar:
@@ -284,7 +429,7 @@ class RegionalFlexOptimizer:
             pbar.update(1)
             
             # Add constraints
-            self._add_constraints(regional_data, time_periods)
+            self._add_constraints(regional_data, time_periods, initial_states=initial_states)
             pbar.update(5)  # Multiple constraint types
         
         logger.info(f"Model built with {len(self.model.variables())} variables and {len(self.model.constraints)} constraints")
@@ -302,6 +447,7 @@ class RegionalFlexOptimizer:
         - dispatch techno
         - stockage (soc / charge / décharge)
         - demand-response
+        - recovery / payback variables for demand response
         - slack ±
         - curtailment
         - flux dirigés inter-régions (flow_out_i_j ≥ 0)
@@ -333,7 +479,6 @@ class RegionalFlexOptimizer:
             for tech in self.dispatch_techs:
                 k = f"dispatch_{tech}_{region}"
                 self.variables[k] = {t: LpVariable(f"{k}_{t}", lowBound=0) for t in T}
-
                 # Unit commitment binary variable
                 uc_k = f"uc_{tech}_{region}"
                 self.variables[uc_k] = {}
@@ -375,7 +520,16 @@ class RegionalFlexOptimizer:
             # c) demand-response (positive only: reduction in demand)
             k = f"demand_response_{region}"
             self.variables[k] = {t: LpVariable(f"{k}_{t}", lowBound=0) for t in T}
-# DR variable is now strictly positive (no increase in demand allowed)
+            # DR variable is strictly positive (no increase in demand allowed)
+
+            recovery_key = f"recovery_{region}"
+            self.variables[recovery_key] = {t: LpVariable(f"{recovery_key}_{t}", lowBound=0) for t in T}
+
+            for lag in range(1, self.max_recovery_horizon_steps + 1):
+                lag_key = f"recovery_commit_lag{lag}_{region}"
+                self.variables[lag_key] = {
+                    t: LpVariable(f"{lag_key}_{t}", lowBound=0) for t in T
+                }
 
             # d) slack ±
             for sign in ("pos", "neg"):
@@ -583,7 +737,7 @@ class RegionalFlexOptimizer:
 # ---------------------------------------------------------------------------
 
         
-    def _add_constraints(self, data: Dict[str, pd.DataFrame], time_periods):
+    def _add_constraints(self, data: Dict[str, pd.DataFrame], time_periods, initial_states=None):
         """Add constraints to the optimization model.
         
         Args:
@@ -608,7 +762,7 @@ class RegionalFlexOptimizer:
             
             # 2. Capacity constraints
             pbar.set_description("Capacity constraints")
-            self._add_capacity_constraints(data, T)
+            self._add_capacity_constraints(data, T, initial_states=initial_states)
             pbar.update(1)
             
             # 3. Storage constraints
@@ -616,7 +770,7 @@ class RegionalFlexOptimizer:
             if self.use_simplified_model and self.simplification_options.get("aggregate_storage", False):
                 logger.info("Skipping storage constraints due to aggregate_storage simplification")
             else:
-                self._add_storage_constraints(data, T)
+                self._add_storage_constraints(data, T, initial_states=initial_states)
             pbar.update(1)
             
             # 4. Exchange network constraints
@@ -626,7 +780,7 @@ class RegionalFlexOptimizer:
             
             # 5. Demand response and ramping constraints
             pbar.set_description("DR and ramping constraints")
-            self._add_dr_and_ramping_constraints(data, T)
+            self._add_dr_and_ramping_constraints(data, T, initial_states=initial_states)
             pbar.update(1)
             
             # 6. Flexibility diversity constraints to ensure balanced use (temporarily skipped)
@@ -655,11 +809,7 @@ class RegionalFlexOptimizer:
             for t in T:
                 if t >= len(df):
                     continue
-                demand = next(
-                    (float(df.iloc[t][c]) for c in ("consumption", "demand", "load")
-                     if c in df.columns),
-                    0.0
-                )
+                demand = self._get_effective_load(df, t)
 
                 # --- composantes ------------------------------------------
                 dispatch_terms  = [
@@ -675,6 +825,7 @@ class RegionalFlexOptimizer:
                     for st in self.storage_techs
                 ]
                 dr_term      = self.variables[f"demand_response_{region}"][t]
+                recovery_term = self.variables[f"recovery_{region}"][t]
                 if getattr(self, 'enable_curtailment', False):
                     curtail_term = self.variables[f"curtail_{region}"][t]
                 else:
@@ -701,6 +852,7 @@ class RegionalFlexOptimizer:
                     exports               +
                     imports               +
                     dr_term               -
+                    recovery_term         -
                     curtail_term          +
                     slack_pos             -
                     slack_neg             == demand,
@@ -719,25 +871,38 @@ class RegionalFlexOptimizer:
         """
         logger.info("Adding network-capacity constraints")
 
-        caps = self.config.get("regional_transport_capacities", {})
+        # Transport capacities live under the ``constraints`` section of the
+        # YAML config (cf. ``_add_dr_and_ramping_constraints``). Reading them
+        # from the top level returned an empty dict, which silently left every
+        # directed flow unbounded (no line limits enforced at all).
+        constraints_cfg = self.config.get("constraints") or {}
+        caps = (
+            constraints_cfg.get("regional_transport_capacities")
+            or self.config.get("regional_transport_capacities")
+            or {}
+        )
 
         for i in self.regions:
             for j in self.regions:
                 if i == j:
                     continue
                 cap = caps.get(i, {}).get(j, caps.get(j, {}).get(i, 0.0))
-                if cap <= 0:
-                    continue
 
+                # A non-positive (or missing) capacity means there is no direct
+                # interconnection between i and j: the directed flow must be
+                # forced to zero. Skipping the constraint here would leave the
+                # flow variable unbounded above, allowing spurious unlimited
+                # transfers on non-existent lines.
                 k = f"flow_out_{i}_{j}"
+                bound = max(cap, 0.0)
                 for t in T:
                     self.model += (
-                        self.variables[k][t] <= cap,
+                        self.variables[k][t] <= bound,
                         f"cap_flow_{i}_{j}_{t}"
                     )
 
 
-    def _add_dr_and_ramping_constraints(self, data: Dict[str, pd.DataFrame], T):
+    def _add_dr_and_ramping_constraints(self, data: Dict[str, pd.DataFrame], T, initial_states=None):
         """Add demand response and ramping constraints for each region.
         
         Args:
@@ -778,63 +943,154 @@ class RegionalFlexOptimizer:
             max_dr_shift = dr_params.get('max_shift', 0.0)  # % of demand
             max_dr_total = dr_params.get('max_total', 0.0)  # MWh
             dr_participation_rate = dr_params.get('participation_rate', 0.0)  # % of consumers
-            
+            recovery_beta, recovery_horizon_steps = self._get_region_recovery_settings(region)
+            recovery_var_name = f"recovery_{region}"
+            ordered_T = list(T)
+
             # Debug: Log what DR parameters are being read
-            debug_msg = f"DEBUG: {region} DR params: max_shift={max_dr_shift}, max_total={max_dr_total}, participation_rate={dr_participation_rate}\n"
+            debug_msg = (
+                f"DEBUG: {region} DR params: max_shift={max_dr_shift}, max_total={max_dr_total}, "
+                f"participation_rate={dr_participation_rate}, recovery_beta={recovery_beta}, "
+                f"recovery_horizon_steps={recovery_horizon_steps}\n"
+            )
             with open('debug.log', 'a') as f:
                 f.write(debug_msg)
-            
+
             # Check if DR variables exist for this region
             dr_var_name = f"demand_response_{region}"
-            if dr_var_name not in self.variables:
+            if dr_var_name not in self.variables or recovery_var_name not in self.variables:
                 continue
-                
-            # If max_shift is 0, force DR to 0 instead of skipping constraints
-            if max_dr_shift <= 0 or max_dr_total <= 0 or dr_participation_rate <= 0:
-                debug_msg = f"DEBUG: Setting DR to zero for {region}: max_shift={max_dr_shift}, max_total={max_dr_total}, participation_rate={dr_participation_rate}\n"
+
+            # Compose total recovery from carried obligations and local DR allocations.
+            for pos, t in enumerate(ordered_T):
+                carried_recovery = self._get_initial_recovery_value(region, pos)
+                arriving_terms = []
+                for lag in range(1, self.max_recovery_horizon_steps + 1):
+                    src_pos = pos - lag
+                    if src_pos < 0:
+                        continue
+                    src_t = ordered_T[src_pos]
+                    lag_key = f"recovery_commit_lag{lag}_{region}"
+                    if lag_key in self.variables and src_t in self.variables[lag_key]:
+                        arriving_terms.append(self.variables[lag_key][src_t])
+
+                self.model += (
+                    self.variables[recovery_var_name][t] == carried_recovery + lpSum(arriving_terms),
+                    f"recovery_balance_{region}_{t}_{uuid.uuid4().hex}"
+                )
+
+            dr_disabled = max_dr_shift <= 0 or max_dr_total <= 0 or dr_participation_rate <= 0
+
+            if dr_disabled:
+                debug_msg = (
+                    f"DEBUG: Setting DR to zero for {region}: max_shift={max_dr_shift}, "
+                    f"max_total={max_dr_total}, participation_rate={dr_participation_rate}\n"
+                )
                 with open('debug.log', 'a') as f:
                     f.write(debug_msg)
                 constraint_count = 0
-                for t in T:
+                for pos, t in enumerate(ordered_T):
                     if t in self.variables[dr_var_name]:
                         self.model += (
                             self.variables[dr_var_name][t] == 0,
-                            f"dr_zero_{region}_{t}_{uuid.uuid4().hex[:8]}"
+                            f"dr_zero_{region}_{t}_{uuid.uuid4().hex}"
+                        )
+                        self.model += (
+                            self.variables[recovery_var_name][t] == self._get_initial_recovery_value(region, pos),
+                            f"recovery_fixed_zero_dr_{region}_{t}_{uuid.uuid4().hex}"
                         )
                         constraint_count += 1
+                for lag in range(1, self.max_recovery_horizon_steps + 1):
+                    lag_key = f"recovery_commit_lag{lag}_{region}"
+                    if lag_key not in self.variables:
+                        continue
+                    for t in ordered_T:
+                        self.model += (
+                            self.variables[lag_key][t] == 0,
+                            f"recovery_commit_zero_{lag}_{region}_{t}_{uuid.uuid4().hex}"
+                        )
                 debug_msg2 = f"DEBUG: Added {constraint_count} zero constraints for {region}\n"
                 with open('debug.log', 'a') as f:
                     f.write(debug_msg2)
                 continue
             
             # Add demand response constraints for each time period
-            for t in T:
+            for pos, t in enumerate(ordered_T):
                 if t not in self.variables[dr_var_name]:
                     continue
                 
-                # Get demand for this time period
-                demand = None
-                for col in ['consumption', 'demand', 'load']:
-                    if col in data[region].columns:
-                        demand = float(data[region].iloc[t][col])
-                        break
-                
-                if demand is None:
-                    logger.warning(f"No demand data found for {region} at time {t}, skipping DR constraint")
+                demand = self._get_dr_reference_load(data.get(region), t)
+                if demand <= 0:
+                    self.model += (
+                        self.variables[dr_var_name][t] == 0,
+                        f"dr_zero_nonpositive_load_{region}_{t}_{uuid.uuid4().hex}"
+                    )
                     continue
-                
-                # Calculate maximum DR shift for this time period based on demand
+
                 # max_dr_shift is in %, dr_participation_rate is already decimal (1.0 = 100%)
                 max_shift = min(demand * max_dr_shift / 100.0 * dr_participation_rate, max_dr_total)
-                
-                # Add DR upper bound constraint (positive only)
+
                 self.model += (
                     self.variables[dr_var_name][t] <= max_shift,
-                    f"dr_max_{region}_{t}_{uuid.uuid4().hex[:8]}"
+                    f"dr_max_{region}_{t}_{uuid.uuid4().hex}"
                 )
                 # Remove lower bound constraint for negative DR (no longer allowed)
-            
-            # Remove DR balance constraint (net zero over time horizon), as only reduction is allowed
+
+                if recovery_horizon_steps <= 0 or recovery_beta <= 0:
+                    continue
+
+                if pos + recovery_horizon_steps >= len(ordered_T):
+                    self.model += (
+                        self.variables[dr_var_name][t] == 0,
+                        f"dr_terminal_zero_{region}_{t}_{uuid.uuid4().hex}"
+                    )
+                    continue
+
+                future_recovery_terms = []
+                for lag in range(1, self.max_recovery_horizon_steps + 1):
+                    lag_key = f"recovery_commit_lag{lag}_{region}"
+                    if lag_key not in self.variables:
+                        continue
+
+                    allocation_var = self.variables[lag_key][t]
+                    if lag <= recovery_horizon_steps:
+                        future_recovery_terms.append(allocation_var)
+                    else:
+                        self.model += (
+                            allocation_var == 0,
+                            f"recovery_lag_outside_horizon_{lag}_{region}_{t}_{uuid.uuid4().hex}"
+                        )
+
+                self.model += (
+                    lpSum(future_recovery_terms) == recovery_beta * self.variables[dr_var_name][t],
+                    f"recovery_target_{region}_{t}_{uuid.uuid4().hex}"
+                )
+
+            if recovery_horizon_steps <= 0 or recovery_beta <= 0:
+                for t in ordered_T:
+                    self.model += (
+                        self.variables[recovery_var_name][t] == self._get_initial_recovery_value(region, ordered_T.index(t)),
+                        f"recovery_no_payback_{region}_{t}_{uuid.uuid4().hex}"
+                    )
+                for lag in range(1, self.max_recovery_horizon_steps + 1):
+                    lag_key = f"recovery_commit_lag{lag}_{region}"
+                    if lag_key not in self.variables:
+                        continue
+                    for t in ordered_T:
+                        self.model += (
+                            self.variables[lag_key][t] == 0,
+                            f"recovery_commit_disabled_{lag}_{region}_{t}_{uuid.uuid4().hex}"
+                        )
+            else:
+                for lag in range(recovery_horizon_steps + 1, self.max_recovery_horizon_steps + 1):
+                    lag_key = f"recovery_commit_lag{lag}_{region}"
+                    if lag_key not in self.variables:
+                        continue
+                    for t in ordered_T:
+                        self.model += (
+                            self.variables[lag_key][t] == 0,
+                            f"recovery_lag_disabled_{lag}_{region}_{t}_{uuid.uuid4().hex}"
+                        )
         
         # 2. Add ramping constraints (if not skipped)
         if not skip_ramping:
@@ -857,26 +1113,18 @@ class RegionalFlexOptimizer:
                         continue
                     
                     # Calculate maximum ramp in MW per time step
-                    # Determine time step dynamically if possible
-                    time_step_hours = 1.0  # Default 1-hour resolution
-                    
-                    # Try to determine time resolution from data if available
-                    if len(T) > 1 and isinstance(T[0], int) and isinstance(T[1], int):
-                        # For integer time steps, assume hourly by default
-                        time_step_hours = 1.0
-                    elif len(T) > 1 and not isinstance(T[0], int) and not isinstance(T[1], int):
-                        # For datetime time steps, calculate the difference
-                        time_diff_seconds = (T[1] - T[0]).total_seconds()
-                        time_step_hours = time_diff_seconds / 3600.0
-                    
-                    # Calculate maximum ramp based on the determined time step
-                    max_ramp = capacity * ramp_rate / 100.0 * time_step_hours
+                    time_step_hours = self.time_step_hours
+
+                    # ramp_rate is the fraction of nameplate capacity the unit
+                    # can move within a single model time step (e.g. 0.4 => the
+                    # unit can change output by 40% of capacity per step).
+                    max_ramp = capacity * ramp_rate
                     
                     # Check if dispatch variables exist for this tech/region
                     dispatch_var_name = f"dispatch_{tech}_{region}"
                     if dispatch_var_name not in self.variables:
                         continue
-                        
+
                     # Add ramping constraints between consecutive time periods
                     for i in range(len(T) - 1):
                         t = T[i]
@@ -898,16 +1146,16 @@ class RegionalFlexOptimizer:
                         # Add up-ramping constraint (t_next - t_curr <= max_ramp)
                         self.model += (
                             self.variables[dispatch_var_name][t_next] - self.variables[dispatch_var_name][t] <= max_ramp,
-                            f"ramp_up_{tech}_{region}_{t}_{uuid.uuid4().hex[:8]}"
+                            f"ramp_up_{tech}_{region}_{t}_{uuid.uuid4().hex}"
                         )
                         
                         # Add down-ramping constraint (t_curr - t_next <= max_ramp)
                         self.model += (
                             self.variables[dispatch_var_name][t] - self.variables[dispatch_var_name][t_next] <= max_ramp,
-                            f"ramp_down_{tech}_{region}_{t}_{uuid.uuid4().hex[:8]}"
+                            f"ramp_down_{tech}_{region}_{t}_{uuid.uuid4().hex}"
                         )
 
-    def _add_capacity_constraints(self, data: Dict[str, pd.DataFrame], T):
+    def _add_capacity_constraints(self, data: Dict[str, pd.DataFrame], T, initial_states=None):
         """Add capacity constraints for dispatch, exchange, and transport.
         
         Args:
@@ -949,27 +1197,40 @@ class RegionalFlexOptimizer:
                             # Ensure dispatch does not exceed capacity
                             self.model += (
                                 self.variables[dispatch_var][t] <= max_capacity,
-                                f"max_dispatch_{tech}_{region}_{t}_{uuid.uuid4().hex[:8]}"
+                                f"max_dispatch_{tech}_{region}_{t}_{uuid.uuid4().hex}"
                             )
                             # Unit commitment constraint: dispatch <= max_capacity * uc
                             self.model += (
                                 self.variables[dispatch_var][t] <= max_capacity * self.variables[uc_var][t],
-                                f"uc_dispatch_link_{tech}_{region}_{t}_{uuid.uuid4().hex[:8]}"
+                                f"uc_dispatch_link_{tech}_{region}_{t}_{uuid.uuid4().hex}"
                             )
                         else:
                             print(f"[UC DEBUG][WARNING] max_capacity is None for {region}, {tech}, t={t}")
+                        if tech == 'hydro' and not self.ignore_hydro_flex:
+                            hydro_flex_limit = self._get_hydro_flex_limit(data.get(region), t)
+                            if hydro_flex_limit is not None:
+                                self.model += (
+                                    self.variables[dispatch_var][t] <= hydro_flex_limit,
+                                    f"hydro_flex_dispatch_{region}_{t}_{uuid.uuid4().hex}"
+                                )
+                            reservoir_cap = self._get_hydro_reservoir_cap(region)
+                            if reservoir_cap is not None:
+                                self.model += (
+                                    self.variables[dispatch_var][t] <= reservoir_cap,
+                                    f"hydro_reservoir_cap_{region}_{t}_{uuid.uuid4().hex}"
+                                )
                         # Startup logic: startup = 1 if uc turns on from previous period
                         if idx > 0 and uc_var in self.variables and startup_var in self.variables:
                             t_prev = T[idx-1]
                             self.model += (
                                 self.variables[startup_var][t] >= self.variables[uc_var][t] - self.variables[uc_var][t_prev],
-                                f"startup_logic_{tech}_{region}_{t}_{uuid.uuid4().hex[:8]}"
+                                f"startup_logic_{tech}_{region}_{t}_{uuid.uuid4().hex}"
                             )
                         elif idx == 0 and startup_var in self.variables and uc_var in self.variables:
                             # First period: startup = uc (if ON at t=0, count as startup)
                             self.model += (
                                 self.variables[startup_var][t] >= self.variables[uc_var][t],
-                                f"startup_logic_init_{tech}_{region}_{t}_{uuid.uuid4().hex[:8]}"
+                                f"startup_logic_init_{tech}_{region}_{t}_{uuid.uuid4().hex}"
                             )
 
                     # Minimum up/down time constraints
@@ -985,7 +1246,7 @@ class RegionalFlexOptimizer:
                                 if startup_var in self.variables and uc_var in self.variables:
                                     self.model += (
                                         self.variables[uc_var][t_w] >= self.variables[startup_var][t_start],
-                                        f"min_up_time_{tech}_{region}_{t_w}_{uuid.uuid4().hex[:8]}"
+                                        f"min_up_time_{tech}_{region}_{t_w}_{uuid.uuid4().hex}"
                                     )
                     if min_down > 1:
                         for idx in range(len(T) - min_down + 1):
@@ -1000,7 +1261,7 @@ class RegionalFlexOptimizer:
                                         shutdown = self.variables[uc_var][t_prev] - self.variables[uc_var][t_start]
                                         self.model += (
                                             1 - self.variables[uc_var][t_w] >= shutdown,
-                                            f"min_down_time_{tech}_{region}_{t_w}_{uuid.uuid4().hex[:8]}"
+                                            f"min_down_time_{tech}_{region}_{t_w}_{uuid.uuid4().hex}"
                                         )
         
         # Add storage capacity constraints
@@ -1015,13 +1276,13 @@ class RegionalFlexOptimizer:
                         # Charge rate constraint
                         self.model += (
                             self.variables[f"storage_charge_{storage_tech}_{region}"][t] <= max_capacity,
-                            f"max_charge_{storage_tech}_{region}_{t}_{uuid.uuid4().hex[:8]}"
+                            f"max_charge_{storage_tech}_{region}_{t}_{uuid.uuid4().hex}"
                         )
                         
                         # Discharge rate constraint
                         self.model += (
                             self.variables[f"storage_discharge_{storage_tech}_{region}"][t] <= max_capacity,
-                            f"max_discharge_{storage_tech}_{region}_{t}_{uuid.uuid4().hex[:8]}"
+                            f"max_discharge_{storage_tech}_{region}_{t}_{uuid.uuid4().hex}"
                         )
         
         # Get storage-related constraints from config
@@ -1072,38 +1333,41 @@ class RegionalFlexOptimizer:
                     if f"storage_charge_{storage_tech}_{region}" in self.variables and t in self.variables[f"storage_charge_{storage_tech}_{region}"]:
                         self.model += (
                             self.variables[f"storage_charge_{storage_tech}_{region}"][t] <= max_charge_rate,
-                            f"max_charge_{storage_tech}_{region}_{t}_{uuid.uuid4().hex[:8]}"
+                            f"max_charge_{storage_tech}_{region}_{t}_{uuid.uuid4().hex}"
                         )
                     
                     # Discharge rate constraint
                     if f"storage_discharge_{storage_tech}_{region}" in self.variables and t in self.variables[f"storage_discharge_{storage_tech}_{region}"]:
                         self.model += (
                             self.variables[f"storage_discharge_{storage_tech}_{region}"][t] <= max_discharge_rate,
-                            f"max_discharge_{storage_tech}_{region}_{t}_{uuid.uuid4().hex[:8]}"
+                            f"max_discharge_{storage_tech}_{region}_{t}_{uuid.uuid4().hex}"
                         )
                 
                 # 2. Storage level dynamics - initial condition
                 if T and 0 in T:
                     # Start with storage at 50% unless otherwise specified
                     initial_storage_level = max_energy_capacity * 0.5
+                    initial_storage_key = f"storage_soc_{storage_tech}_{region}"
+                    if initial_states is not None and initial_storage_key in initial_states:
+                        initial_storage_level = float(initial_states[initial_storage_key])
                     
                     # Check if storage initialization parameters exist
                     storage_initial_key = f"{storage_tech}_initial"
                     
                     # Try to find initial storage level in various config sections
-                    if 'storage_initial' in self.config:
+                    if initial_states is None and 'storage_initial' in self.config:
                         if region in self.config['storage_initial'] and storage_tech in self.config['storage_initial'][region]:
                             initial_storage_level = float(self.config['storage_initial'][region][storage_tech])
-                    elif region in self.tech_params and storage_initial_key in self.tech_params[region]:
+                    elif initial_states is None and region in self.tech_params and storage_initial_key in self.tech_params[region]:
                         initial_storage_level = float(self.tech_params[region][storage_initial_key])
                     # If we have region in regional_params, try that too
-                    elif hasattr(self, 'regional_params') and region in self.regional_params and storage_initial_key in self.regional_params[region]:
+                    elif initial_states is None and hasattr(self, 'regional_params') and region in self.regional_params and storage_initial_key in self.regional_params[region]:
                         initial_storage_level = float(self.regional_params[region][storage_initial_key])
                     
                     # Set initial storage level
                     self.model += (
                         self.variables[f"storage_soc_{storage_tech}_{region}"][0] == initial_storage_level,
-                        f"initial_storage_{storage_tech}_{region}_{uuid.uuid4().hex[:8]}"
+                        f"initial_storage_{storage_tech}_{region}_{uuid.uuid4().hex}"
                     )
                 
                 # 3. Storage level dynamics - time evolution
@@ -1130,7 +1394,7 @@ class RegionalFlexOptimizer:
                             self.variables[f"storage_soc_{storage_tech}_{region}"][t] + \
                             self.variables[f"storage_charge_{storage_tech}_{region}"][t] * charge_efficiency - \
                             self.variables[f"storage_discharge_{storage_tech}_{region}"][t] * (1.0 / discharge_efficiency),
-                            f"storage_evolution_{storage_tech}_{region}_{t}_{uuid.uuid4().hex[:8]}"
+                            f"storage_evolution_{storage_tech}_{region}_{t}_{uuid.uuid4().hex}"
                         )
                 
                 # 4. Optional: cyclical constraint (end level = start level)
@@ -1140,13 +1404,13 @@ class RegionalFlexOptimizer:
                     self.model += (
                         self.variables[f"storage_soc_{storage_tech}_{region}"][T[-1]] >= \
                         self.variables[f"storage_soc_{storage_tech}_{region}"][T[0]] * 0.95,
-                        f"cyclical_storage_min_{storage_tech}_{region}_{uuid.uuid4().hex[:8]}"
+                        f"cyclical_storage_min_{storage_tech}_{region}_{uuid.uuid4().hex}"
                     )
                     
                     self.model += (
                         self.variables[f"storage_soc_{storage_tech}_{region}"][T[-1]] <= \
                         self.variables[f"storage_soc_{storage_tech}_{region}"][T[0]] * 1.05,
-                        f"cyclical_storage_max_{storage_tech}_{region}_{uuid.uuid4().hex[:8]}"
+                        f"cyclical_storage_max_{storage_tech}_{region}_{uuid.uuid4().hex}"
                     )
 
     # ---------------------------------------------------------------------
@@ -1155,7 +1419,8 @@ class RegionalFlexOptimizer:
     def _add_storage_constraints(
             self,
             data: Dict[str, pd.DataFrame],
-            T: List[Union[int, pd.Timestamp]]
+            T: List[Union[int, pd.Timestamp]],
+            initial_states: Optional[dict] = None
         ) -> None:
         """Add power- and energy-related constraints for all storage techs."""
         logger.info("Adding storage constraints")
@@ -1203,11 +1468,11 @@ class RegionalFlexOptimizer:
                         continue
                     self.model += (
                         self.variables[f"storage_charge_{tech}_{region}"][t] <= max_power,
-                        f"stor_max_charge_{tech}_{region}_{t}_{uuid.uuid4().hex[:6]}"
+                        f"stor_max_charge_{tech}_{region}_{t}_{uuid.uuid4().hex}"
                     )
                     self.model += (
                         self.variables[f"storage_discharge_{tech}_{region}"][t] <= max_power,
-                        f"stor_max_discharge_{tech}_{region}_{t}_{uuid.uuid4().hex[:6]}"
+                        f"stor_max_discharge_{tech}_{region}_{t}_{uuid.uuid4().hex}"
                     )
     # ---------- SOC bounds & dynamics --------------------------
                 for i, t in enumerate(T):
@@ -1215,11 +1480,11 @@ class RegionalFlexOptimizer:
                         continue
                     self.model += (
                         self.variables[f"storage_soc_{tech}_{region}"][t] <= max_capacity,
-                        f"stor_soc_max_{tech}_{region}_{t}_{uuid.uuid4().hex[:6]}"
+                        f"stor_soc_max_{tech}_{region}_{t}_{uuid.uuid4().hex}"
                     )
                     self.model += (
                         self.variables[f"storage_soc_{tech}_{region}"][t] >= 0,
-                        f"stor_soc_min_{tech}_{region}_{t}_{uuid.uuid4().hex[:6]}"
+                        f"stor_soc_min_{tech}_{region}_{t}_{uuid.uuid4().hex}"
                     )
                     # Apply self-discharge for batteries
                     if i < len(T) - 1:
@@ -1242,14 +1507,14 @@ class RegionalFlexOptimizer:
                                 == self.variables[f"storage_soc_{tech}_{region}"][t] * soc_decay
                                 + self.variables[f"storage_charge_{tech}_{region}"][t] * charge_eff
                                 - self.variables[f"storage_discharge_{tech}_{region}"][t] * (1.0 / discharge_eff),
-                                f"stor_dyn_{tech}_{region}_{t}_{uuid.uuid4().hex[:6]}"
+                                f"stor_dyn_{tech}_{region}_{t}_{uuid.uuid4().hex}"
                             )
         # ---------- cyclical constraint (optional) -----------------
         if self.config.get('use_cyclical_storage', False) and len(T) >= 2:
             self.model += (
                 self.variables[f"storage_soc_{tech}_{region}"][T[0]]
                 == self.variables[f"storage_soc_{tech}_{region}"][T[-1]],
-                f"stor_cyc_{tech}_{region}_{uuid.uuid4().hex[:6]}"
+                f"stor_cyc_{tech}_{region}_{uuid.uuid4().hex}"
                 )
 
 
@@ -1323,12 +1588,9 @@ class RegionalFlexOptimizer:
             # Get demand values for this region
             for t in T:
                 if t < len(regional_data):
-                    for col in ['consumption', 'demand', 'load']:
-                        if col in regional_data.columns:
-                            demand_value = float(regional_data.iloc[t][col])
-                            if demand_value > 0:  # Only consider positive demand
-                                total_demand[t] = demand_value
-                                break
+                    demand_value = self._get_effective_load(regional_data, t)
+                    if demand_value > 0:
+                        total_demand[t] = demand_value
             
             # Skip if no demand data
             if not total_demand:
@@ -1379,15 +1641,12 @@ class RegionalFlexOptimizer:
                     for region, var_name in [(r1, 'r1_demand'), (r2, 'r2_demand')]:
                         regional_data = data.get(region)
                         if regional_data is not None and t < len(regional_data):
-                            for col in ['consumption', 'demand', 'load']:
-                                if col in regional_data.columns:
-                                    demand_value = float(regional_data.iloc[t][col])
-                                    if demand_value > 0:
-                                        if var_name == 'r1_demand':
-                                            r1_demand = demand_value
-                                        else:
-                                            r2_demand = demand_value
-                                        break
+                            demand_value = self._get_effective_load(regional_data, t)
+                            if demand_value > 0:
+                                if var_name == 'r1_demand':
+                                    r1_demand = demand_value
+                                else:
+                                    r2_demand = demand_value
                     
                     if r1_demand is None or r2_demand is None:
                         continue
@@ -1447,18 +1706,34 @@ class RegionalFlexOptimizer:
         if logger.level <= logging.DEBUG:
             self.model.writeLP("regional_flex_model.lp")
             logger.debug("Model written to regional_flex_model.lp")
-        
-        # Set up solver options
-        solver_options = []
-        if time_limit is not None:
-            solver_options.append(("timeLimit", time_limit))
-        if threads is not None:
-            solver_options.append(("threads", threads))
-        # Force CBC solver only
-        from pulp import PULP_CBC_CMD
-        solver_options_str = [f"{name}={value}" for name, value in solver_options]
-        solver_to_use = PULP_CBC_CMD(msg=True, options=solver_options_str)
-        
+
+        # Use the caller-provided solver when available, otherwise fall back to HiGHS.
+        solver_to_use = solver
+        if solver_to_use is None:
+            try:
+                from pulp import HiGHS
+
+                solver_to_use = HiGHS(
+                    mip=True,
+                    msg=True,
+                    timeLimit=time_limit,
+                    threads=threads,
+                )
+                if hasattr(solver_to_use, "available") and not solver_to_use.available():
+                    raise RuntimeError("HiGHS backend unavailable")
+            except Exception as exc:
+                logger.warning(f"HiGHS unavailable, falling back to CBC: {exc}")
+                solver_to_use = PULP_CBC_CMD(
+                    msg=True,
+                    timeLimit=time_limit,
+                    threads=threads,
+                )
+        else:
+            if time_limit is not None and hasattr(solver_to_use, "timeLimit"):
+                solver_to_use.timeLimit = time_limit
+            if threads is not None and hasattr(solver_to_use, "threads"):
+                solver_to_use.threads = threads
+
         # --- Diagnostic: Print all constraints involving uc_* variables ---
         print("\n[UC Constraint Diagnostics]")
         uc_constraints = [c for c in self.model.constraints if "uc_" in c]
@@ -1583,7 +1858,7 @@ class RegionalFlexOptimizer:
     # ------------------------------------------------------------------
     #  UTILITAIRES  DUELS / PRIX NODAUX
     # ------------------------------------------------------------------
-    def get_nodal_prices(self):
+    def get_nodal_prices(self, solver=None):
         """
         Retourne un dict {region: pandas.Series(prices)} des prix nodaux λ
         (shadow price des contraintes balance_<region>_<t>).
@@ -1592,47 +1867,90 @@ class RegionalFlexOptimizer:
         if self.model.status != 1:        # 1 == LpStatusOptimal
             raise RuntimeError("Le MILP n'est pas optimal → pas de duals fiables.")
 
-        # --- 1. construire un modèle LP « fixé » ----------------------------
-        lp = self.model.copy()
-        # Map original binary var names to their optimal values
-        bin_vals = {v.name: v.varValue for v in self.binary_vars if v.varValue is not None}
-        # Freeze binaries in the copied model
-        for w in lp.variables():
-            if w.name in bin_vals:
-                val = bin_vals[w.name]
-                w.lowBound = val
-                w.upBound = val
-                w.cat = 'Continuous'
+        def _build_fixed_lp():
+            lp = self.model.copy()
+            bin_vals = {v.name: v.varValue for v in self.binary_vars if v.varValue is not None}
+            for w in lp.variables():
+                if w.name in bin_vals:
+                    val = bin_vals[w.name]
+                    w.lowBound = val
+                    w.upBound = val
+                    w.cat = "Continuous"
+            return lp
 
-        # --- 2. résoudre la relaxation linéaire -----------------------------
-        from pulp import PULP_CBC_CMD   
-        lp.solve(PULP_CBC_CMD(msg=True, mip=False))
-        if lp.status != 1:
-            raise RuntimeError("LP fixe non optimale ; duals indisponibles.")
+        def _candidate_solvers():
+            seen = set()
+            candidates = []
+            if solver is not None:
+                candidates.append(solver)
 
-        # --- 3. lire les duals ----------------------------------------------
-        prices = {r: {} for r in self.regions}
+            try:
+                from pulp import HiGHS
 
-        for cname, c in lp.constraints.items():
-            if not cname.startswith("balance_"):
+                candidates.append(HiGHS(mip=False, msg=False))
+            except Exception as exc:
+                logger.warning(f"HiGHS unavailable for dual extraction setup: {exc}")
+
+            try:
+                from pulp import PULP_CBC_CMD
+
+                candidates.append(PULP_CBC_CMD(msg=False, mip=False))
+            except Exception as exc:
+                logger.warning(f"CBC unavailable for dual extraction setup: {exc}")
+
+            for cand in candidates:
+                key = type(cand).__name__
+                if key in seen:
+                    continue
+                seen.add(key)
+                if hasattr(cand, "msg"):
+                    cand.msg = False
+                yield cand
+
+        last_error = None
+        for solver_to_use in _candidate_solvers():
+            lp = _build_fixed_lp()
+            try:
+                lp.solve(solver_to_use)
+            except Exception as exc:
+                last_error = exc
+                logger.warning(
+                    f"Dual extraction failed with {type(solver_to_use).__name__}: {exc}"
+                )
                 continue
 
-            # nom = balance_<region>_<timestep>
-            body = cname[len("balance_"):]
-            # enlève le préfixe
-            region, t = body.rsplit("_", 1)           # coupe sur le dernier « _ »
-            try:
-                t = int(t)
-            except ValueError:
-                continue                              # au cas où
+            if lp.status != 1:
+                last_error = RuntimeError(
+                    f"LP fixe non optimale avec {type(solver_to_use).__name__} (status={lp.status})"
+                )
+                logger.warning(str(last_error))
+                continue
 
-            prices.setdefault(region, {})[t] = abs(c.pi)   # dual value
+            prices = {r: {} for r in self.regions}
+            for cname, c in lp.constraints.items():
+                if not cname.startswith("balance_"):
+                    continue
 
-        # Séries pandas pour plus de confort
-        for r in prices:
-            prices[r] = pd.Series(prices[r]).sort_index()
+                body = cname[len("balance_"):]
+                region, t = body.rsplit("_", 1)
+                try:
+                    t = int(t)
+                except ValueError:
+                    continue
 
-        return prices
+                prices.setdefault(region, {})[t] = abs(c.pi)
+
+            for r in prices:
+                prices[r] = pd.Series(prices[r]).sort_index()
+
+            return prices
+
+        logger.warning(
+            "Dual extraction unavailable after solver fallbacks; continuing with empty nodal prices."
+        )
+        if last_error is not None:
+            logger.warning(f"Last dual extraction error: {last_error}")
+        return {r: pd.Series(dtype=float) for r in self.regions}
 
     def get_results(self, dual_variables=None) -> Dict:
         """Extract results from the optimized model.

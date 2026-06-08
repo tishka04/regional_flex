@@ -1,0 +1,36 @@
+{
+  "start": "2022-01-18 00:00:00",
+  "end": "2022-01-18 23:59:59",
+  "data_suffix": "_2022",
+  "config_path": "config\\regional_flex_config_2022.yaml",
+  "config_year": 2022,
+  "master_config_merge": false,
+  "solver": "PULP_CBC_CMD",
+  "requested_threads": 1,
+  "n_windows": 1,
+  "n_steps": 48,
+  "window_size": 48,
+  "stride": 48,
+  "time_step_hours": 0.5,
+  "recovery_lookahead_steps": 0,
+  "data_load_seconds": 0.10865219996776432,
+  "build_seconds_sum": 0.1919058000203222,
+  "solve_seconds_sum_reported": 2.4828484058380127,
+  "window_seconds_sum": 3.1014476000564173,
+  "total_wallclock_seconds": 3.221076999907382,
+  "window_timings": [
+    {
+      "window": 1,
+      "start_idx": 0,
+      "end_idx": 48,
+      "commit_len": 48,
+      "build_seconds": 0.1919058000203222,
+      "solve_seconds_reported": 2.4828484058380127,
+      "solve_wall_seconds": 2.5781839000992477,
+      "results_seconds": 0.0010000999318435788,
+      "total_window_seconds": 3.1014476000564173,
+      "status": 1,
+      "objective_value": 77041870.24897502
+    }
+  ]
+}

@@ -1,0 +1,53 @@
+{
+  "start": "2023-01-18 00:00:00",
+  "end": "2023-01-19 23:59:59",
+  "data_suffix": "_2023",
+  "config_path": "config\\regional_flex_config_2023.yaml",
+  "config_year": 2023,
+  "master_config_merge": false,
+  "recovery_beta_override": 0.0,
+  "ignore_hydro_flex": false,
+  "solver": "highs",
+  "solver_class": "HiGHS",
+  "requested_threads": 1,
+  "n_windows": 2,
+  "n_steps": 96,
+  "window_size": 48,
+  "stride": 48,
+  "time_step_hours": 0.5,
+  "recovery_lookahead_steps": 0,
+  "data_load_seconds": 0.09645820001605898,
+  "build_seconds_sum": 0.34651060006581247,
+  "solve_seconds_sum_reported": 12.165243148803711,
+  "window_seconds_sum": 13.310984099982306,
+  "total_wallclock_seconds": 13.41878639999777,
+  "window_timings": [
+    {
+      "window": 1,
+      "start_idx": 0,
+      "end_idx": 48,
+      "commit_len": 48,
+      "build_seconds": 0.17042830004356802,
+      "solve_seconds_reported": 8.456153869628906,
+      "solve_wall_seconds": 8.552887700032443,
+      "results_seconds": 0.0009983000345528126,
+      "total_window_seconds": 9.012381099979393,
+      "status": 1,
+      "objective_value": 60056089.16139947
+    },
+    {
+      "window": 2,
+      "start_idx": 48,
+      "end_idx": 96,
+      "commit_len": 48,
+      "build_seconds": 0.17608230002224445,
+      "solve_seconds_reported": 3.7090892791748047,
+      "solve_wall_seconds": 3.8131438000127673,
+      "results_seconds": 0.0011652999091893435,
+      "total_window_seconds": 4.298603000002913,
+      "status": 1,
+      "objective_value": 54714899.12126069
+    }
+  ],
+  "run_status": "complete"
+}
